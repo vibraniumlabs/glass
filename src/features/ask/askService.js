@@ -34,6 +34,7 @@ try {
     sharp = null;
 }
 let lastScreenshot = null;
+let seededIncidentContext = null; // Variable to hold the seeded context
 
 async function captureScreenshot(options = {}) {
     if (process.platform === 'darwin') {
@@ -135,6 +136,12 @@ class AskService {
             showTextInput: true,
         };
         console.log('[AskService] Service instance created.');
+    }
+
+    seedContext(context) {
+        console.log('[AskService] Received and seeded incident context:', context);
+        seededIncidentContext = JSON.stringify(context, null, 2);
+        return { success: true };
     }
 
     _broadcastState() {
@@ -254,7 +261,18 @@ class AskService {
 
             const conversationHistory = this._formatConversationForPrompt(conversationHistoryRaw);
 
-            const systemPrompt = getSystemPrompt('pickle_glass_analysis', conversationHistory, false);
+            // --- MODIFICATION: Inject the seeded context into the system prompt ---
+            let systemPrompt = getSystemPrompt('pickle_glass_analysis', conversationHistory, false);
+            if (seededIncidentContext) {
+                const contextInjection = `The user is currently working on the following incident. This information is critical context for their request.
+---
+INCIDENT CONTEXT:
+${seededIncidentContext}
+---
+`;
+                systemPrompt = contextInjection + systemPrompt;
+            }
+
 
             const messages = [
                 { role: 'system', content: systemPrompt },

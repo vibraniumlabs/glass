@@ -48,15 +48,15 @@ let pendingDeepLinkUrl = null;
 function setupProtocolHandling() {
     // Protocol registration - must be done before app is ready
     try {
-        if (!app.isDefaultProtocolClient('pickleglass')) {
-            const success = app.setAsDefaultProtocolClient('pickleglass');
+        if (!app.isDefaultProtocolClient('vibranium-copilot')) {
+            const success = app.setAsDefaultProtocolClient('vibranium-copilot');
             if (success) {
-                console.log('[Protocol] Successfully set as default protocol client for pickleglass://');
+                console.log('[Protocol] Successfully set as default protocol client for vibranium-copilot://');
             } else {
                 console.warn('[Protocol] Failed to set as default protocol client - this may affect deep linking');
             }
         } else {
-            console.log('[Protocol] Already registered as default protocol client for pickleglass://');
+            console.log('[Protocol] Already registered as default protocol client for vibranium-copilot://');
         }
     } catch (error) {
         console.error('[Protocol] Error during protocol registration:', error);
@@ -72,7 +72,7 @@ function setupProtocolHandling() {
         
         // Search through all command line arguments for a valid protocol URL
         for (const arg of commandLine) {
-            if (arg && typeof arg === 'string' && arg.startsWith('pickleglass://')) {
+            if (arg && typeof arg === 'string' && arg.startsWith('vibranium-copilot://')) {
                 // Clean up the URL by removing problematic characters
                 const cleanUrl = arg.replace(/[\\₩]/g, '');
                 
@@ -104,7 +104,7 @@ function setupProtocolHandling() {
         event.preventDefault();
         console.log('[Protocol] Received URL via open-url:', url);
         
-        if (!url || !url.startsWith('pickleglass://')) {
+        if (!url || !url.startsWith('vibranium-copilot://')) {
             console.warn('[Protocol] Invalid URL format:', url);
             return;
         }
@@ -145,7 +145,7 @@ function focusMainWindow() {
 
 if (process.platform === 'win32') {
     for (const arg of process.argv) {
-        if (arg && typeof arg === 'string' && arg.startsWith('pickleglass://')) {
+        if (arg && typeof arg === 'string' && arg.startsWith('vibranium-copilot://')) {
             // Clean up the URL by removing problematic characters (korean characters issue...)
             const cleanUrl = arg.replace(/[\\₩]/g, '');
             
@@ -445,53 +445,53 @@ function setupWebDataHandlers() {
 }
 
 async function handleCustomUrl(url) {
+    console.log('[Custom URL] Handling URL:', url);
+    const { windowPool } = require('./window/windowManager');
+
+    // Make sure main window is visible
+    const header = windowPool.get('header');
+    if (header) {
+        if (!header.isVisible()) {
+            header.show();
+        }
+        header.focus();
+    }
+    
+    // Validate and clean URL
+    if (!url || typeof url !== 'string' || !url.startsWith('vibranium-copilot://')) {
+        console.error('[Custom URL] Invalid URL format:', url);
+        return;
+    }
+
     try {
-        console.log('[Custom URL] Processing URL:', url);
-        
-        // Validate and clean URL
-        if (!url || typeof url !== 'string' || !url.startsWith('pickleglass://')) {
-            console.error('[Custom URL] Invalid URL format:', url);
-            return;
-        }
-        
-        // Clean up URL by removing problematic characters
-        const cleanUrl = url.replace(/[\\₩]/g, '');
-        
-        // Additional validation
-        if (cleanUrl !== url) {
-            console.log('[Custom URL] Cleaned URL from:', url, 'to:', cleanUrl);
-            url = cleanUrl;
-        }
-        
-        const urlObj = new URL(url);
-        const action = urlObj.hostname;
-        const params = Object.fromEntries(urlObj.searchParams);
-        
-        console.log('[Custom URL] Action:', action, 'Params:', params);
+        const parsedUrl = new URL(url);
+        const action = parsedUrl.hostname;
+        const params = parsedUrl.searchParams;
+
+        console.log(`[Custom URL] Action: ${action}`, params);
 
         switch (action) {
-            case 'login':
-            case 'auth-success':
+            case 'auth-callback':
                 await handleFirebaseAuthCallback(params);
                 break;
             case 'personalize':
                 handlePersonalizeFromUrl(params);
                 break;
-            default:
-                const { windowPool } = require('./window/windowManager.js');
-                const header = windowPool.get('header');
-                if (header) {
-                    if (header.isMinimized()) header.restore();
-                    header.focus();
-                    
-                    const targetUrl = `http://localhost:${WEB_PORT}/${action}`;
-                    console.log(`[Custom URL] Navigating webview to: ${targetUrl}`);
-                    header.webContents.loadURL(targetUrl);
+            case 'context':
+                const encodedData = params.get('data');
+                if (encodedData) {
+                    // Decode the Base64 string back to a JSON string
+                    const jsonString = Buffer.from(encodedData, 'base64').toString('utf8');
+                    const context = JSON.parse(jsonString);
+                    askService.seedContext(context);
+                    console.log('[Custom URL] Successfully seeded context from URL.');
                 }
+                break;
+            default:
+                console.warn(`[Custom URL] Unknown action: ${action}`);
         }
-
     } catch (error) {
-        console.error('[Custom URL] Error parsing URL:', error);
+        console.error('[Custom URL] Error handling custom URL:', error);
     }
 }
 

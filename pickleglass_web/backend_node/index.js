@@ -6,12 +6,12 @@ const { identifyUser } = require('./middleware/auth');
 function createApp(eventBridge) {
     const app = express();
 
-    const webUrl = process.env.pickleglass_WEB_URL || 'http://localhost:3000';
-    console.log(`🔧 Backend CORS configured for: ${webUrl}`);
-
+    // WARNING: This is a permissive CORS policy for development.
+    // In production, you should restrict this to your app's domain.
     app.use(cors({
-        origin: webUrl,
-        credentials: true,
+        origin: '*', // Allows all origins
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization']
     }));
 
     app.use(express.json());
@@ -31,6 +31,7 @@ function createApp(eventBridge) {
     app.use('/api/user', require('./routes/user'));
     app.use('/api/conversations', require('./routes/conversations'));
     app.use('/api/presets', require('./routes/presets'));
+    app.use('/api/context', require('./routes/context'));
 
     app.get('/api/sync/status', (req, res) => {
         res.json({
