@@ -28,7 +28,7 @@ if (shouldUseLiquidGlass) {
 }
 /* ────────────────[ GLASS BYPASS ]─────────────── */
 
-let isContentProtectionOn = true;
+let isContentProtectionOn = false;
 let lastVisibleWindows = new Set(['header']);
 
 let currentHeaderState = 'apikey';

@@ -28,6 +28,7 @@ const sessionRepository = require('./features/common/repositories/session');
 const modelStateService = require('./features/common/services/modelStateService');
 const featureBridge = require('./bridge/featureBridge');
 const windowBridge = require('./bridge/windowBridge');
+const contextSyncService = require('./features/common/services/contextSyncService');
 
 // Global variables
 const eventBridge = new EventEmitter();
@@ -49,9 +50,16 @@ function setupProtocolHandling() {
     // Protocol registration - must be done before app is ready
     try {
         if (!app.isDefaultProtocolClient('vibranium-copilot')) {
-            const success = app.setAsDefaultProtocolClient('vibranium-copilot');
+            const args = [];
+            // When in development, we need to tell Electron where our app is.
+            if (!app.isPackaged) {
+                // This points to the project root, so Electron knows what to load.
+                args.push(path.resolve(process.argv[1] || '.'));
+            }
+
+            const success = app.setAsDefaultProtocolClient('vibranium-copilot', process.execPath, args);
             if (success) {
-                console.log('[Protocol] Successfully set as default protocol client for vibranium-copilot://');
+                console.log(`[Protocol] Successfully set as default protocol client with args: ${args}`);
             } else {
                 console.warn('[Protocol] Failed to set as default protocol client - this may affect deep linking');
             }
@@ -257,6 +265,9 @@ app.on('before-quit', async (event) => {
     event.preventDefault();
     
     try {
+        // Sync context back to Vibe AI before doing anything else
+        await contextSyncService.syncSessionOnQuit();
+
         // 1. Stop audio capture first (immediate)
         await listenService.closeSession();
         console.log('[Shutdown] Audio capture stopped');
@@ -480,11 +491,21 @@ async function handleCustomUrl(url) {
             case 'context':
                 const encodedData = params.get('data');
                 if (encodedData) {
-                    // Decode the Base64 string back to a JSON string
-                    const jsonString = Buffer.from(encodedData, 'base64').toString('utf8');
+                    // Decode the URI component first, then decode from Base64
+                    const base64String = decodeURIComponent(encodedData);
+                    const jsonString = Buffer.from(base64String, 'base64').toString('utf8');
                     const context = JSON.parse(jsonString);
+                    
+                    // Seed the context into the Ask service for the AI
                     askService.seedContext(context);
                     console.log('[Custom URL] Successfully seeded context from URL.');
+
+                    // Also, link this incidentId to the current session in the database
+                    if (context.incidentId) {
+                        const sessionId = await sessionRepository.getOrCreateActive('ask');
+                        await sessionRepository.update(sessionId, { external_incident_id: context.incidentId });
+                        console.log(`[Custom URL] Linked incident ${context.incidentId} to session ${sessionId}`);
+                    }
                 }
                 break;
             default:

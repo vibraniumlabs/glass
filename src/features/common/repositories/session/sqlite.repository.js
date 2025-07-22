@@ -124,11 +124,36 @@ function endAllActiveSessions(uid) {
     }
 }
 
+function update(id, data) {
+    const db = sqliteClient.getDb();
+    const now = Math.floor(Date.now() / 1000);
+    
+    const fields = Object.keys(data);
+    const values = Object.values(data);
+
+    if (fields.length === 0) {
+        return { changes: 0 };
+    }
+
+    const setClause = fields.map(field => `${field} = ?`).join(', ');
+    const query = `UPDATE sessions SET ${setClause}, updated_at = ? WHERE id = ?`;
+    
+    try {
+        const result = db.prepare(query).run(...values, now, id);
+        console.log(`SQLite: Updated session ${id} with data:`, data);
+        return { changes: result.changes };
+    } catch (err) {
+        console.error(`SQLite: Failed to update session ${id}:`, err);
+        throw err;
+    }
+}
+
 module.exports = {
     getById,
     create,
     getAllByUserId,
     updateTitle,
+    update,
     deleteWithRelatedData,
     end,
     updateType,

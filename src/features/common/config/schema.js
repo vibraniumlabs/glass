@@ -18,7 +18,8 @@ const LATEST_SCHEMA = {
             { name: 'started_at', type: 'INTEGER' },
             { name: 'ended_at', type: 'INTEGER' },
             { name: 'sync_state', type: 'TEXT DEFAULT \'clean\'' },
-            { name: 'updated_at', type: 'INTEGER' }
+            { name: 'updated_at', type: 'INTEGER' },
+            { name: 'external_incident_id', type: 'TEXT' }
         ]
     },
     transcripts: {

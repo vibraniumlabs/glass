@@ -58,6 +58,14 @@ async function updateTitle(id, title) {
     return { changes: 1 };
 }
 
+async function update(id, data) {
+    const docRef = doc(sessionsCol(), id);
+    const updateData = { ...data, updated_at: Timestamp.now() };
+    await updateDoc(docRef, updateData);
+    console.log(`Firebase: Updated session ${id} with data:`, data);
+    return { changes: 1 };
+}
+
 async function deleteWithRelatedData(id) {
     const db = getFirestoreInstance();
     const batch = writeBatch(db);
@@ -152,6 +160,7 @@ module.exports = {
     create,
     getAllByUserId,
     updateTitle,
+    update,
     deleteWithRelatedData,
     end,
     updateType,
