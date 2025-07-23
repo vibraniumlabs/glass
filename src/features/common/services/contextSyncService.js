@@ -4,25 +4,30 @@ const askRepository = require('../../ask/repositories');
 const fetch = require('node-fetch');
 
 // TODO: Move this to a config file
-const VIBE_AI_BACKEND_URL = 'http://localhost:9000';
+const VIBE_AI_BACKEND_URL = 'http://localhost:3003';
 
 async function syncSessionOnQuit() {
     console.log('[ContextSync] Starting sync-back process on quit...');
     try {
-        const allSessions = await sessionRepository.getAllByUserId();
-        console.log(`[ContextSync] Found ${allSessions.length} total sessions.`);
-
-        const sessionsToSync = allSessions.filter(s => s.external_incident_id);
-
-        if (sessionsToSync.length === 0) {
-            console.log('[ContextSync] No sessions with external incident IDs to sync. Exiting.');
+        // Only get the most recently active session, not all historical sessions
+        const activeSessions = await sessionRepository.getAllByUserId();
+        
+        // Find the most recent session with an external_incident_id
+        const sessionsWithIncidentId = activeSessions.filter(s => s.external_incident_id);
+        
+        if (sessionsWithIncidentId.length === 0) {
+            console.log('[ContextSync] No active session with external incident ID to sync. Exiting.');
             return;
         }
 
-        console.log(`[ContextSync] Found ${sessionsToSync.length} sessions to sync.`);
-        for (const session of sessionsToSync) {
-            await processSingleSession(session);
-        }
+        // Sort by updated_at or created_at to get the most recent session
+        const mostRecentSession = sessionsWithIncidentId.sort((a, b) => 
+            (b.updated_at || b.created_at) - (a.updated_at || a.created_at)
+        )[0];
+
+        console.log(`[ContextSync] Found most recent session ${mostRecentSession.id} for incident ${mostRecentSession.external_incident_id}`);
+        
+        await processSingleSession(mostRecentSession);
 
     } catch (error) {
         console.error('[ContextSync] Error during sync-back on quit:', error);
@@ -40,17 +45,18 @@ async function processSingleSession(session) {
 
         const payload = {
             source: 'vibranium-copilot',
-            incidentId: session.external_incident_id,
-            sessionData: {
-                ...session,
-                transcripts,
-                ai_messages
+            sessionId: session.id,
+            timestamp: new Date().toISOString(),
+            data: {
+                transcripts: transcripts,
+                messages: ai_messages
             }
         };
 
-        const targetUrl = `${VIBE_AI_BACKEND_URL}/v1/incidents/${session.external_incident_id}/context`;
+        const targetUrl = `${VIBE_AI_BACKEND_URL}/api/v1/incidents/${session.external_incident_id}/context`;
 
         console.log(`[ContextSync] POSTing data for incident ${session.external_incident_id} to ${targetUrl}`);
+        console.log(`[ContextSync] Payload:`, JSON.stringify(payload, null, 2));
 
         const response = await fetch(targetUrl, {
             method: 'POST',
