@@ -286,9 +286,81 @@ function createStreamingLLM({ apiKey, model = 'gpt-4.1', temperature = 0.7, maxT
   };
 }
 
+/**
+ * Creates an OpenAI TTS instance
+ * @param {object} opts - Configuration options
+ * @param {string} opts.apiKey - OpenAI API key
+ * @param {string} [opts.model='tts-1'] - TTS model name
+ * @param {string} [opts.voice='alloy'] - Voice type
+ * @param {number} [opts.speed=1.0] - Speech speed (0.25 to 4.0)
+ * @param {boolean} [opts.usePortkey=false] - Whether to use Portkey
+ * @param {string} [opts.portkeyVirtualKey] - Portkey virtual key
+ * @returns {object} TTS instance
+ */
+function createTTS({ apiKey, model = 'tts-1', voice = 'alloy', speed = 1.0, usePortkey = false, portkeyVirtualKey, ...config }) {
+  return {
+    synthesize: async (text) => {
+      if (!text || typeof text !== 'string') {
+        throw new Error('Text is required for TTS synthesis');
+      }
+
+      const requestBody = {
+        model: model,
+        input: text,
+        voice: voice,
+        response_format: 'mp3',
+        speed: Math.max(0.25, Math.min(4.0, speed)) // Clamp speed between 0.25 and 4.0
+      };
+
+      const fetchUrl = usePortkey 
+        ? 'https://api.portkey.ai/v1/audio/speech'
+        : 'https://api.openai.com/v1/audio/speech';
+      
+      const headers = usePortkey
+        ? {
+            'x-portkey-api-key': 'gRv2UGRMq6GGLJ8aVEB4e7adIewu',
+            'x-portkey-virtual-key': portkeyVirtualKey || apiKey,
+            'Content-Type': 'application/json',
+          }
+        : {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          };
+
+      const response = await fetch(fetchUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        throw new Error(`OpenAI TTS API error: ${response.status} ${response.statusText} - ${errorText}`);
+      }
+
+      // Return the audio buffer
+      const audioBuffer = await response.arrayBuffer();
+      return new Uint8Array(audioBuffer);
+    },
+
+    // Get available voices
+    getAvailableVoices: () => {
+      return [
+        { id: 'alloy', name: 'Alloy (Neutral)' },
+        { id: 'echo', name: 'Echo (Male)' },
+        { id: 'fable', name: 'Fable (British Male)' },
+        { id: 'onyx', name: 'Onyx (Deep Male)' },
+        { id: 'nova', name: 'Nova (Female)' },
+        { id: 'shimmer', name: 'Shimmer (Female)' }
+      ];
+    }
+  };
+}
+
 module.exports = {
     OpenAIProvider,
     createSTT,
     createLLM,
-    createStreamingLLM
+    createStreamingLLM,
+    createTTS
 }; 

@@ -12,6 +12,7 @@
  * @property {() => any} handler
  * @property {ModelOption[]} llmModels
  * @property {ModelOption[]} sttModels
+ * @property {ModelOption[]} ttsModels
  */
 
 /**
@@ -27,6 +28,10 @@ const PROVIDERS = {
       sttModels: [
           { id: 'gpt-4o-mini-transcribe', name: 'GPT-4o Mini Transcribe' }
       ],
+      ttsModels: [
+          { id: 'tts-1', name: 'TTS-1 (Fast)' },
+          { id: 'tts-1-hd', name: 'TTS-1 HD (High Quality)' }
+      ],
   },
 
   'openai-glass': {
@@ -38,6 +43,10 @@ const PROVIDERS = {
       sttModels: [
           { id: 'gpt-4o-mini-transcribe-glass', name: 'GPT-4o Mini Transcribe (glass)' }
       ],
+      ttsModels: [
+          { id: 'tts-1-glass', name: 'TTS-1 (glass)' },
+          { id: 'tts-1-hd-glass', name: 'TTS-1 HD (glass)' }
+      ],
   },
   'gemini': {
       name: 'Gemini',
@@ -48,6 +57,7 @@ const PROVIDERS = {
       sttModels: [
           { id: 'gemini-live-2.5-flash-preview', name: 'Gemini Live 2.5 Flash' }
       ],
+      ttsModels: [],
   },
   'anthropic': {
       name: 'Anthropic',
@@ -56,6 +66,7 @@ const PROVIDERS = {
           { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
       ],
       sttModels: [],
+      ttsModels: [],
   },
   'deepgram': {
     name: 'Deepgram',
@@ -64,12 +75,14 @@ const PROVIDERS = {
     sttModels: [
         { id: 'nova-3', name: 'Nova-3 (General)' },
         ],
+    ttsModels: [],
     },
   'ollama': {
       name: 'Ollama (Local)',
       handler: () => require("./providers/ollama"),
       llmModels: [], // Dynamic models populated from installed Ollama models
       sttModels: [], // Ollama doesn't support STT yet
+      ttsModels: [], // Ollama doesn't support TTS yet
   },
   'whisper': {
       name: 'Whisper (Local)',
@@ -92,6 +105,7 @@ const PROVIDERS = {
           { id: 'whisper-small', name: 'Whisper Small (244M)' },
           { id: 'whisper-medium', name: 'Whisper Medium (769M)' },
       ],
+      ttsModels: [],
   },
 };
 
@@ -110,6 +124,19 @@ function createSTT(provider, opts) {
     opts = { ...opts, model: sanitizeModelId(opts.model) };
   }
   return handler.createSTT(opts);
+}
+
+function createTTS(provider, opts) {
+  if (provider === 'openai-glass') provider = 'openai';
+  
+  const handler = PROVIDERS[provider]?.handler();
+  if (!handler?.createTTS) {
+      throw new Error(`TTS not supported for provider: ${provider}`);
+  }
+  if (opts && opts.model) {
+    opts = { ...opts, model: sanitizeModelId(opts.model) };
+  }
+  return handler.createTTS(opts);
 }
 
 function createLLM(provider, opts) {
@@ -168,16 +195,19 @@ function getProviderClass(providerId) {
 function getAvailableProviders() {
   const stt = [];
   const llm = [];
+  const tts = [];
   for (const [id, provider] of Object.entries(PROVIDERS)) {
       if (provider.sttModels.length > 0) stt.push(id);
       if (provider.llmModels.length > 0) llm.push(id);
+      if (provider.ttsModels.length > 0) tts.push(id);
   }
-  return { stt: [...new Set(stt)], llm: [...new Set(llm)] };
+  return { stt: [...new Set(stt)], llm: [...new Set(llm)], tts: [...new Set(tts)] };
 }
 
 module.exports = {
   PROVIDERS,
   createSTT,
+  createTTS,
   createLLM,
   createStreamingLLM,
   getProviderClass,

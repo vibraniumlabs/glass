@@ -96,8 +96,10 @@ const LATEST_SCHEMA = {
             { name: 'api_key', type: 'TEXT' },
             { name: 'selected_llm_model', type: 'TEXT' },
             { name: 'selected_stt_model', type: 'TEXT' },
+            { name: 'selected_tts_model', type: 'TEXT' },
             { name: 'is_active_llm', type: 'INTEGER DEFAULT 0' },
             { name: 'is_active_stt', type: 'INTEGER DEFAULT 0' },
+            { name: 'is_active_tts', type: 'INTEGER DEFAULT 0' },
             { name: 'created_at', type: 'INTEGER' },
             { name: 'updated_at', type: 'INTEGER' }
         ],

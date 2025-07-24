@@ -121,7 +121,8 @@ class ModelStateService extends EventEmitter {
         const activeSettings = await providerSettingsRepository.getActiveSettings();
         const selectedModels = {
             llm: activeSettings.llm?.selected_llm_model || null,
-            stt: activeSettings.stt?.selected_stt_model || null
+            stt: activeSettings.stt?.selected_stt_model || null,
+            tts: activeSettings.tts?.selected_tts_model || null
         };
         
         return { apiKeys, selectedModels };
@@ -130,7 +131,7 @@ class ModelStateService extends EventEmitter {
     async _autoSelectAvailableModels(forceReselectionForTypes = [], isInitialBoot = false) {
         console.log(`[ModelStateService] Running auto-selection. Force re-selection for: [${forceReselectionForTypes.join(', ')}]`);
         const { apiKeys, selectedModels } = await this.getLiveState();
-        const types = ['llm', 'stt'];
+        const types = ['llm', 'stt', 'tts'];
 
         for (const type of types) {
             const currentModelId = selectedModels[type];
@@ -283,7 +284,9 @@ class ModelStateService extends EventEmitter {
         }
         if (!modelId || !type) return null;
         for (const providerId in PROVIDERS) {
-            const models = type === 'llm' ? PROVIDERS[providerId].llmModels : PROVIDERS[providerId].sttModels;
+            const models = type === 'llm' ? PROVIDERS[providerId].llmModels : 
+                          type === 'stt' ? PROVIDERS[providerId].sttModels : 
+                          PROVIDERS[providerId].ttsModels;
             if (models && models.some(m => m.id === modelId)) {
                 return providerId;
             }
@@ -300,6 +303,7 @@ class ModelStateService extends EventEmitter {
         return {
             llm: active.llm?.selected_llm_model || null,
             stt: active.stt?.selected_stt_model || null,
+            tts: active.tts?.selected_tts_model || null,
         };
     }
     
@@ -315,8 +319,10 @@ class ModelStateService extends EventEmitter {
 
         if (type === 'llm') {
             newSettings.selected_llm_model = modelId;
-        } else {
+        } else if (type === 'stt') {
             newSettings.selected_stt_model = modelId;
+        } else if (type === 'tts') {
+            newSettings.selected_tts_model = modelId;
         }
         
         await providerSettingsRepository.upsert(provider, newSettings);
@@ -336,7 +342,7 @@ class ModelStateService extends EventEmitter {
     async getAvailableModels(type) {
         const allSettings = await providerSettingsRepository.getAll();
         const available = [];
-        const modelListKey = type === 'llm' ? 'llmModels' : 'sttModels';
+        const modelListKey = type === 'llm' ? 'llmModels' : type === 'stt' ? 'sttModels' : 'ttsModels';
 
         for (const setting of allSettings) {
             if (!setting.api_key) continue;
@@ -356,7 +362,9 @@ class ModelStateService extends EventEmitter {
         const activeSetting = await providerSettingsRepository.getActiveProvider(type);
         if (!activeSetting) return null;
         
-        const model = type === 'llm' ? activeSetting.selected_llm_model : activeSetting.selected_stt_model;
+        const model = type === 'llm' ? activeSetting.selected_llm_model : 
+                      type === 'stt' ? activeSetting.selected_stt_model : 
+                      activeSetting.selected_tts_model;
         if (!model) return null;
 
         return {

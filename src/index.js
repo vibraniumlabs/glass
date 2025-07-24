@@ -206,6 +206,10 @@ app.whenReady().then(async () => {
         await modelStateService.initialize();
         //////// after_modelStateService ////////
 
+        // Initialize TTS Service
+        const ttsService = require('./features/common/services/ttsService');
+        await ttsService.initialize();
+
         featureBridge.initialize();  // 추가: featureBridge 초기화
         windowBridge.initialize();
         setupWebDataHandlers();

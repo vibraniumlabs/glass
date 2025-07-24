@@ -439,6 +439,8 @@ ${seededIncidentContext}
                 } catch(dbError) {
                     console.error("[AskService] DB: Failed to save assistant response after stream ended:", dbError);
                 }
+
+                // TTS removed - speech is now handled by Listen feature only
             }
         }
     }

@@ -28,21 +28,22 @@ function getAll() {
 
 function upsert(provider, settings) {
     // Validate: prevent direct setting of active status
-    if (settings.is_active_llm || settings.is_active_stt) {
-        console.warn('[ProviderSettings] Warning: is_active_llm/is_active_stt should not be set directly. Use setActiveProvider() instead.');
+    if (settings.is_active_llm || settings.is_active_stt || settings.is_active_tts) {
+        console.warn('[ProviderSettings] Warning: is_active_llm/is_active_stt/is_active_tts should not be set directly. Use setActiveProvider() instead.');
     }
     
     const db = sqliteClient.getDb();
     
     // Use SQLite's UPSERT syntax (INSERT ... ON CONFLICT ... DO UPDATE)
     const stmt = db.prepare(`
-        INSERT INTO provider_settings (provider, api_key, selected_llm_model, selected_stt_model, is_active_llm, is_active_stt, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO provider_settings (provider, api_key, selected_llm_model, selected_stt_model, selected_tts_model, is_active_llm, is_active_stt, is_active_tts, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(provider) DO UPDATE SET
             api_key = excluded.api_key,
             selected_llm_model = excluded.selected_llm_model,
             selected_stt_model = excluded.selected_stt_model,
-            -- is_active_llm and is_active_stt are NOT updated here
+            selected_tts_model = excluded.selected_tts_model,
+            -- is_active_llm, is_active_stt, and is_active_tts are NOT updated here
             -- Use setActiveProvider() to change active status
             updated_at = excluded.updated_at
     `);
@@ -52,8 +53,10 @@ function upsert(provider, settings) {
         settings.api_key || null,
         settings.selected_llm_model || null,
         settings.selected_stt_model || null,
+        settings.selected_tts_model || null,
         0, // is_active_llm - always 0, use setActiveProvider to activate
         0, // is_active_stt - always 0, use setActiveProvider to activate
+        0, // is_active_tts - always 0, use setActiveProvider to activate
         settings.created_at || Date.now(),
         settings.updated_at
     );
@@ -81,10 +84,12 @@ function getRawApiKeys() {
     return stmt.all();
 }
 
-// Get active provider for a specific type (llm or stt)
+// Get active provider for a specific type (llm, stt, or tts)
 function getActiveProvider(type) {
     const db = sqliteClient.getDb();
-    const column = type === 'llm' ? 'is_active_llm' : 'is_active_stt';
+    const column = type === 'llm' ? 'is_active_llm' : 
+                   type === 'stt' ? 'is_active_stt' : 
+                   'is_active_tts';
     const stmt = db.prepare(`SELECT * FROM provider_settings WHERE ${column} = 1`);
     const result = stmt.get() || null;
     
@@ -98,7 +103,9 @@ function getActiveProvider(type) {
 // Set active provider for a specific type
 function setActiveProvider(provider, type) {
     const db = sqliteClient.getDb();
-    const column = type === 'llm' ? 'is_active_llm' : 'is_active_stt';
+    const column = type === 'llm' ? 'is_active_llm' : 
+                   type === 'stt' ? 'is_active_stt' : 
+                   'is_active_tts';
     
     // Start transaction to ensure only one provider is active
     db.transaction(() => {

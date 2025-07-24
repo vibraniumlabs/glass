@@ -12,6 +12,12 @@ class ListenService {
         this.summaryService = new SummaryService();
         this.currentSessionId = null;
         this.isInitializingSession = false;
+        
+        // Speech management for preventing feedback
+        this.isAISpeaking = false;
+        this.speechQueue = [];
+        this.lastAIResponse = null;
+        this.lastSpeechTime = null;
 
         this.setupServiceCallbacks();
         console.log('[ListenService] Service instance created.');
@@ -99,11 +105,278 @@ class ListenService {
     async handleTranscriptionComplete(speaker, text) {
         console.log(`[ListenService] Transcription complete: ${speaker} - ${text}`);
         
+        // Filter out AI speech to prevent feedback loop
+        if (this.isAISpeaking) {
+            console.log(`[ListenService] Ignoring transcription while AI is speaking (feedback prevention): "${text}"`);
+            return;
+        }
+        
+        // Additional filtering: Ignore very short or repetitive texts that might be AI echo
+        if (this.isLikelyAIEcho(text)) {
+            console.log(`[ListenService] Filtering out likely AI echo: "${text}"`);
+            return;
+        }
+        
+        // Only process "Me" transcriptions for voice conversations
+        if (speaker !== 'Me') {
+            console.log(`[ListenService] Ignoring "${speaker}" transcription in voice mode: "${text}"`);
+            return;
+        }
+        
+        // Additional safety: Check if we recently spoke (within last 2 seconds)
+        if (this.lastSpeechTime && (Date.now() - this.lastSpeechTime) < 2000) {
+            console.log(`[ListenService] Ignoring transcription too soon after AI speech: "${text}"`);
+            return;
+        }
+        
         // Save to database
         await this.saveConversationTurn(speaker, text);
         
         // Add to summary service for analysis
         this.summaryService.addConversationTurn(speaker, text);
+        
+        // If the user ("Me") spoke, send to AI for interaction and respond verbally
+        if (text.trim().length > 0) {
+            await this.handleUserQuestion(text);
+        }
+    }
+    
+    /**
+     * Check if transcribed text is likely to be AI echo/feedback
+     */
+    isLikelyAIEcho(text) {
+        const cleanText = text.toLowerCase().trim();
+        
+        // Filter very short utterances that are likely artifacts
+        if (cleanText.length < 8) return true;
+        
+        // Store the last AI response for comparison
+        if (this.lastAIResponse) {
+            const lastResponseWords = this.lastAIResponse.toLowerCase().split(' ');
+            const textWords = cleanText.split(' ');
+            
+            // Check if current text contains consecutive words from AI response
+            for (let i = 0; i < textWords.length - 2; i++) {
+                const threeWords = textWords.slice(i, i + 3).join(' ');
+                if (this.lastAIResponse.toLowerCase().includes(threeWords) && threeWords.length > 10) {
+                    console.log(`[ListenService] Detected AI echo: "${threeWords}" matches previous response`);
+                    return true;
+                }
+            }
+        }
+        
+        // No additional pattern filtering - rely on timing and response comparison
+        return false;
+    }
+    
+    async handleUserQuestion(userText) {
+        try {
+            console.log(`[ListenService] Processing user question: "${userText}"`);
+            
+            const ttsService = require('../common/services/ttsService');
+            
+            // Get AI response directly (not using streaming Ask service)
+            const aiResponse = await this.getAIResponse(userText);
+            
+            if (aiResponse) {
+                console.log(`[ListenService] AI response: ${aiResponse}`);
+                
+                // Store AI response for echo detection
+                this.lastAIResponse = aiResponse;
+                
+                // Save AI response as a conversation turn from "Assistant"
+                await this.saveConversationTurn('Assistant', aiResponse);
+                this.summaryService.addConversationTurn('Assistant', aiResponse);
+                
+                // Update the UI to show the AI response
+                this.sendToRenderer('ai-response', {
+                    text: aiResponse,
+                    timestamp: Date.now()
+                });
+                
+                // Convert AI response to speech with feedback prevention
+                if (ttsService.isEnabled()) {
+                    // Generate a conversational summary for speech
+                    const speechSummary = await this.generateSpeechSummary(aiResponse);
+                    await this.speakResponse(speechSummary, ttsService);
+                }
+            }
+            
+        } catch (error) {
+            console.error('[ListenService] Error processing user question:', error);
+            
+            // Speak an error message with feedback prevention
+            const ttsService = require('../common/services/ttsService');
+            if (ttsService.isEnabled()) {
+                await this.speakResponse('Sorry, I encountered an error processing your request.', ttsService);
+            }
+        }
+    }
+    
+    /**
+     * Get AI response directly (non-streaming for voice conversations)
+     */
+    async getAIResponse(userText) {
+        try {
+            // Import AI services
+            const modelStateService = require('../common/services/modelStateService');
+            const { createLLM } = require('../common/ai/factory');
+            const { getSystemPrompt } = require('../common/prompts/promptBuilder');
+            
+            // Get current LLM model info
+            const modelInfo = await modelStateService.getCurrentModelInfo('llm');
+            if (!modelInfo || !modelInfo.apiKey) {
+                throw new Error('AI model or API key is not configured.');
+            }
+            
+            console.log(`[ListenService] Sending AI request to ${modelInfo.provider} using model ${modelInfo.model}`);
+            
+            // Build messages with system prompt
+            const systemPrompt = getSystemPrompt('pickle_glass_analysis', [], false);
+            const messages = [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userText }
+            ];
+            
+            // Create LLM instance
+            const llm = createLLM(modelInfo.provider, {
+                apiKey: modelInfo.apiKey,
+                model: modelInfo.model,
+                temperature: 0.7,
+                maxTokens: 1024,
+                usePortkey: modelInfo.provider === 'openai-glass',
+                portkeyVirtualKey: modelInfo.provider === 'openai-glass' ? modelInfo.apiKey : undefined,
+            });
+            
+            // Get AI response
+            const completion = await llm.chat(messages);
+            return completion.content.trim();
+            
+        } catch (error) {
+            console.error('[ListenService] Error getting AI response:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * Generate a conversational summary for speech (shorter, more natural)
+     */
+    async generateSpeechSummary(fullResponse) {
+        try {
+            // If the response is already short enough, use it as-is
+            if (fullResponse.length <= 200) {
+                return this.makeConversational(fullResponse);
+            }
+            
+            console.log('[ListenService] Generating speech summary for long response...');
+            
+            // Import AI services for summarization
+            const modelStateService = require('../common/services/modelStateService');
+            const { createLLM } = require('../common/ai/factory');
+            
+            // Get current LLM model info
+            const modelInfo = await modelStateService.getCurrentModelInfo('llm');
+            if (!modelInfo || !modelInfo.apiKey) {
+                console.warn('[ListenService] No LLM available for summarization, using fallback');
+                return this.extractKeySentences(fullResponse);
+            }
+            
+            // Create LLM instance for summarization
+            const llm = createLLM(modelInfo.provider, {
+                apiKey: modelInfo.apiKey,
+                model: modelInfo.model,
+                temperature: 0.3,
+                maxTokens: 100,
+                usePortkey: modelInfo.provider === 'openai-glass',
+                portkeyVirtualKey: modelInfo.provider === 'openai-glass' ? modelInfo.apiKey : undefined,
+            });
+            
+            // Generate conversational summary
+            const summaryPrompt = `Convert this detailed response into a brief, conversational spoken summary (1-2 sentences max):
+
+"${fullResponse}"
+
+Make it sound natural for speech, like you're talking to a friend. Focus on the main point only.`;
+            
+            const messages = [
+                { role: 'system', content: 'You are a conversational AI assistant. Create brief, natural spoken summaries.' },
+                { role: 'user', content: summaryPrompt }
+            ];
+            
+            const completion = await llm.chat(messages);
+            const summary = completion.content.trim();
+            
+            console.log(`[ListenService] Generated speech summary: "${summary}"`);
+            return summary;
+            
+        } catch (error) {
+            console.error('[ListenService] Error generating speech summary:', error);
+            // Fallback to simple extraction
+            return this.extractKeySentences(fullResponse);
+        }
+    }
+    
+    /**
+     * Make text more conversational for speech
+     */
+    makeConversational(text) {
+        return text
+            // Remove markdown formatting
+            .replace(/\*\*(.*?)\*\*/g, '$1')
+            .replace(/\*(.*?)\*/g, '$1')
+            .replace(/- /g, '')
+            .replace(/\n+/g, ' ')
+            // Remove formal patterns
+            .replace(/In summary,?/gi, '')
+            .replace(/To summarize,?/gi, '')
+            .replace(/In conclusion,?/gi, '')
+            .trim();
+    }
+    
+    /**
+     * Fallback: Extract key sentences from response
+     */
+    extractKeySentences(text) {
+        const sentences = text
+            .replace(/\*\*(.*?)\*\*/g, '$1') // Remove markdown
+            .replace(/\*(.*?)\*/g, '$1')
+            .replace(/- /g, '')
+            .split(/[.!?]+/)
+            .map(s => s.trim())
+            .filter(s => s.length > 10);
+        
+        // Take first 1-2 key sentences
+        const keySentences = sentences.slice(0, 2).join('. ');
+        return keySentences.length > 0 ? keySentences + '.' : text.substring(0, 200) + '...';
+    }
+
+    /**
+     * Speak AI response with feedback loop prevention
+     */
+    async speakResponse(text, ttsService) {
+        try {
+            // Set AI speaking flag to prevent feedback
+            this.isAISpeaking = true;
+            console.log('[ListenService] AI started speaking - transcription paused');
+            
+            // Add delay before speaking to let any ongoing transcription finish
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Speak the response
+            console.log(`[ListenService] Speaking: "${text}"`);
+            await ttsService.speak(text);
+            
+            // Longer delay to ensure all audio processing is complete
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            
+        } catch (error) {
+            console.error('[ListenService] Error during TTS:', error);
+        } finally {
+            // Clear AI speaking flag to resume transcription
+            this.isAISpeaking = false;
+            this.lastSpeechTime = Date.now(); // Track when we finished speaking
+            console.log('[ListenService] AI finished speaking - transcription ready for follow-up');
+        }
     }
 
     async saveConversationTurn(speaker, transcription) {
