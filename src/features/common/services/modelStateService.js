@@ -104,8 +104,29 @@ class ModelStateService extends EventEmitter {
     async handleLocalAIStateChange(service, state) {
         console.log(`[ModelStateService] LocalAI state changed: ${service}`, state);
         if (!state.installed || !state.running) {
-            const types = service === 'ollama' ? ['llm'] : service === 'whisper' ? ['stt'] : [];
-            await this._autoSelectAvailableModels(types);
+            // Only force re-selection if we're actually using the local AI service that went down
+            const selectedModels = await this.getSelectedModels();
+            const types = [];
+            
+            if (service === 'ollama' && selectedModels.llm) {
+                const llmProvider = this.getProviderForModel(selectedModels.llm, 'llm');
+                if (llmProvider === 'ollama') {
+                    types.push('llm');
+                    console.log(`[ModelStateService] Ollama went offline and we were using an Ollama LLM model, switching to API model`);
+                }
+            } else if (service === 'whisper' && selectedModels.stt) {
+                const sttProvider = this.getProviderForModel(selectedModels.stt, 'stt');
+                if (sttProvider === 'whisper') {
+                    types.push('stt');
+                    console.log(`[ModelStateService] Whisper went offline and we were using a Whisper STT model, switching to API model`);
+                }
+            }
+            
+            if (types.length > 0) {
+                await this._autoSelectAvailableModels(types);
+            } else {
+                console.log(`[ModelStateService] ${service} went offline but we're not using ${service} models, no re-selection needed`);
+            }
         }
         this.emit('state-updated', await this.getLiveState());
     }

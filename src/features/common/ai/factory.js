@@ -23,14 +23,17 @@ const PROVIDERS = {
       name: 'OpenAI',
       handler: () => require("./providers/openai"),
       llmModels: [
-          { id: 'gpt-4.1', name: 'GPT-4.1' },
+          { id: 'gpt-4o', name: 'GPT-4o (Latest)' },
+          { id: 'gpt-4o-mini', name: 'GPT-4o Mini (Fast)' },
+          { id: 'gpt-4.1', name: 'GPT-4.1 (Legacy)' },
       ],
       sttModels: [
+          { id: 'whisper-1', name: 'Whisper-1 (High Quality)' },
           { id: 'gpt-4o-mini-transcribe', name: 'GPT-4o Mini Transcribe' }
       ],
       ttsModels: [
-          { id: 'tts-1', name: 'TTS-1 (Fast)' },
-          { id: 'tts-1-hd', name: 'TTS-1 HD (High Quality)' }
+          { id: 'tts-1-hd', name: 'TTS-1 HD (High Quality)' },
+          { id: 'tts-1', name: 'TTS-1 (Fast)' }
       ],
   },
 
@@ -38,14 +41,17 @@ const PROVIDERS = {
       name: 'OpenAI (Glass)',
       handler: () => require("./providers/openai"),
       llmModels: [
+          { id: 'gpt-4o-glass', name: 'GPT-4o (glass)' },
+          { id: 'gpt-4o-mini-glass', name: 'GPT-4o Mini (glass)' },
           { id: 'gpt-4.1-glass', name: 'GPT-4.1 (glass)' },
       ],
       sttModels: [
+          { id: 'whisper-1-glass', name: 'Whisper-1 (glass)' },
           { id: 'gpt-4o-mini-transcribe-glass', name: 'GPT-4o Mini Transcribe (glass)' }
       ],
       ttsModels: [
-          { id: 'tts-1-glass', name: 'TTS-1 (glass)' },
-          { id: 'tts-1-hd-glass', name: 'TTS-1 HD (glass)' }
+          { id: 'tts-1-hd-glass', name: 'TTS-1 HD (glass)' },
+          { id: 'tts-1-glass', name: 'TTS-1 (glass)' }
       ],
   },
   'gemini': {
@@ -63,7 +69,8 @@ const PROVIDERS = {
       name: 'Anthropic',
       handler: () => require("./providers/anthropic"),
       llmModels: [
-          { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
+          { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (Best)' },
+          { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku (Fast)' },
       ],
       sttModels: [],
       ttsModels: [],
@@ -73,6 +80,9 @@ const PROVIDERS = {
     handler: () => require("./providers/deepgram"),
     llmModels: [],
     sttModels: [
+        { id: 'nova-2-conversationalai', name: 'Nova-2 Conversational AI (Best)' },
+        { id: 'nova-2-meeting', name: 'Nova-2 Meeting' },
+        { id: 'nova-2-general', name: 'Nova-2 General' },
         { id: 'nova-3', name: 'Nova-3 (General)' },
         ],
     ttsModels: [],

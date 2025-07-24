@@ -117,14 +117,12 @@ class ListenService {
             return;
         }
         
-        // Only process "Me" transcriptions for voice conversations
-        if (speaker !== 'Me') {
-            console.log(`[ListenService] Ignoring "${speaker}" transcription in voice mode: "${text}"`);
-            return;
-        }
+        // Accept both "Me" and "Them" transcriptions - rely on timing and content filtering
+        // Sometimes the microphone input gets detected as "Them" instead of "Me"
+        console.log(`[ListenService] Processing "${speaker}" transcription: "${text}"`);
         
-        // Additional safety: Check if we recently spoke (within last 2 seconds)
-        if (this.lastSpeechTime && (Date.now() - this.lastSpeechTime) < 2000) {
+        // Additional safety: Check if we recently spoke (within last 400ms for faster follow-ups)
+        if (this.lastSpeechTime && (Date.now() - this.lastSpeechTime) < 400) {
             console.log(`[ListenService] Ignoring transcription too soon after AI speech: "${text}"`);
             return;
         }
@@ -135,9 +133,11 @@ class ListenService {
         // Add to summary service for analysis
         this.summaryService.addConversationTurn(speaker, text);
         
-        // If the user ("Me") spoke, send to AI for interaction and respond verbally
-        if (text.trim().length > 0) {
+        // Only process "Me" transcriptions as user questions that need AI responses
+        if (speaker === 'Me' && text.trim().length > 0) {
             await this.handleUserQuestion(text);
+        } else if (speaker === 'Them') {
+            console.log(`[ListenService] Recorded system audio: "${text}" (no AI response triggered)`);
         }
     }
     
@@ -148,7 +148,7 @@ class ListenService {
         const cleanText = text.toLowerCase().trim();
         
         // Filter very short utterances that are likely artifacts
-        if (cleanText.length < 8) return true;
+        if (cleanText.length < 3) return true;
         
         // Store the last AI response for comparison
         if (this.lastAIResponse) {
@@ -156,10 +156,11 @@ class ListenService {
             const textWords = cleanText.split(' ');
             
             // Check if current text contains consecutive words from AI response
-            for (let i = 0; i < textWords.length - 2; i++) {
-                const threeWords = textWords.slice(i, i + 3).join(' ');
-                if (this.lastAIResponse.toLowerCase().includes(threeWords) && threeWords.length > 10) {
-                    console.log(`[ListenService] Detected AI echo: "${threeWords}" matches previous response`);
+            // Made less aggressive: require 4+ words and 15+ chars for better accuracy
+            for (let i = 0; i < textWords.length - 3; i++) {
+                const fourWords = textWords.slice(i, i + 4).join(' ');
+                if (this.lastAIResponse.toLowerCase().includes(fourWords) && fourWords.length > 15) {
+                    console.log(`[ListenService] Detected AI echo: "${fourWords}" matches previous response`);
                     return true;
                 }
             }
@@ -231,12 +232,54 @@ class ListenService {
             
             console.log(`[ListenService] Sending AI request to ${modelInfo.provider} using model ${modelInfo.model}`);
             
-            // Build messages with system prompt
-            const systemPrompt = getSystemPrompt('pickle_glass_analysis', [], false);
+            // Build messages with system prompt (including seeded incident context)
+            let systemPrompt = getSystemPrompt('pickle_glass_analysis', [], false);
+            
+            // Add voice-specific instructions for conversation consistency
+            const voiceInstructions = `
+
+**VOICE CONVERSATION MODE:**
+- You are in a live voice conversation with the user
+- Maintain consistent tone and personality throughout the conversation
+- Keep responses conversational and natural for speech
+- Reference previous parts of the conversation when relevant
+- Be a helpful incident response assistant focused on the current emergency`;
+            
+            systemPrompt = systemPrompt + voiceInstructions;
+            
+            // Import and check for seeded incident context from Ask service
+            const askService = require('../ask/askService');
+            const seededContext = askService.getSeededContext ? askService.getSeededContext() : null;
+            
+            if (seededContext) {
+                const contextInjection = `The user is currently working on the following incident. This information is critical context for their request.
+---
+INCIDENT CONTEXT:
+${seededContext}
+---
+`;
+                systemPrompt = contextInjection + systemPrompt;
+                console.log('[ListenService] Including seeded incident context in voice conversation');
+            }
+            
+            // Build conversation history for context
             const messages = [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userText }
+                { role: 'system', content: systemPrompt }
             ];
+            
+            // Add recent conversation history (last 10 exchanges for context)
+            const recentHistory = this.summaryService.conversationHistory.slice(-10);
+            for (const historyItem of recentHistory) {
+                const [speaker, text] = historyItem.split(': ', 2);
+                if (speaker === 'me') {
+                    messages.push({ role: 'user', content: text });
+                } else if (speaker === 'assistant') {
+                    messages.push({ role: 'assistant', content: text });
+                }
+            }
+            
+            // Add current user message
+            messages.push({ role: 'user', content: userText });
             
             // Create LLM instance
             const llm = createLLM(modelInfo.provider, {
@@ -360,14 +403,14 @@ Make it sound natural for speech, like you're talking to a friend. Focus on the 
             console.log('[ListenService] AI started speaking - transcription paused');
             
             // Add delay before speaking to let any ongoing transcription finish
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 400));
             
             // Speak the response
             console.log(`[ListenService] Speaking: "${text}"`);
             await ttsService.speak(text);
             
-            // Longer delay to ensure all audio processing is complete
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            // Shorter delay for faster follow-up questions
+            await new Promise(resolve => setTimeout(resolve, 800));
             
         } catch (error) {
             console.error('[ListenService] Error during TTS:', error);

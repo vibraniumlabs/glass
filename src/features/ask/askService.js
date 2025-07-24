@@ -144,6 +144,10 @@ class AskService {
         return { success: true };
     }
 
+    getSeededContext() {
+        return seededIncidentContext;
+    }
+
     _broadcastState() {
         const askWindow = getWindowPool()?.get('ask');
         if (askWindow && !askWindow.isDestroyed()) {
