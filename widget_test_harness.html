@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Glass Widget Test Harness</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            flex-direction: column;
+            gap: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: 500;
+            box-shadow: 0 4px 12px rgba(0, 123, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+        button:hover {
+            background-color: #0056b3;
+            box-shadow: 0 6px 16px rgba(0, 123, 255, 0.3);
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Simulated Vibe UI</h1>
+    <p>This page acts as the host for the Glass AI Widget.</p>
+    <button id="launch-widget-button">🚀 Start Vibe AI Copilot</button>
+
+    <!-- This script will load our widget -->
+    <script type="module" src="./src/widget/GlassWidget.js"></script>
+    <script type="module">
+        import GlassWidget from './src/widget/GlassWidget.js';
+
+        const launchButton = document.getElementById('launch-widget-button');
+        
+        // This will keep track of the widget instance
+        let glassWidgetInstance = null;
+
+        launchButton.addEventListener('click', () => {
+            if (glassWidgetInstance && glassWidgetInstance.isOpen()) {
+                console.log('Widget is already open.');
+                return;
+            }
+            
+            // Create and show a new widget instance
+            glassWidgetInstance = new GlassWidget({
+                onClose: () => {
+                    console.log('Widget has been closed.');
+                    glassWidgetInstance = null;
+                }
+            });
+            glassWidgetInstance.show();
+        });
+    </script>
+
+</body>
+</html> 

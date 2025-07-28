@@ -155,14 +155,14 @@ const SidebarComponent = ({ isCollapsed, onToggle, onSearchClick }: SidebarProps
     const { isAnimating, getTextAnimationStyle, getSubmenuAnimationStyle, sidebarContainerStyle, getTextContainerStyle, getUniformTextStyle } =
         useAnimationStyles(isCollapsed);
 
-    useEffect(() => {
-        checkApiKeyStatus()
-            .then(status => setHasApiKey(status.hasApiKey))
-            .catch(err => {
-                console.error('Failed to check API key status:', err);
-                setHasApiKey(null); // Set to null on error
-            });
-    }, []);
+    // useEffect(() => {
+    //     checkApiKeyStatus()
+    //         .then(status => setHasApiKey(status.hasApiKey))
+    //         .catch(err => {
+    //             console.error('Failed to check API key status:', err);
+    //             setHasApiKey(null); // Set to null on error
+    //         });
+    // }, []);
 
     useEffect(() => {
         if (pathname.startsWith('/settings')) {

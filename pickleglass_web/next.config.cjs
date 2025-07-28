@@ -2,7 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
-  output: 'export',
+  // output: 'export', // <-- This was disabling the server and API routes
 
   images: { unoptimized: true },
 }

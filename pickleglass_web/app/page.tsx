@@ -1,21 +1,29 @@
-'use client'
+'use client';
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState } from 'react';
+import GlassAgent from '../components/GlassAgent';
 
 export default function Home() {
-  const router = useRouter()
+  const [isAgentVisible, setIsAgentVisible] = useState(false);
 
-  useEffect(() => {
-    router.push('/personalize')
-  }, [router])
+  const incidentContext = "This is a sample incident context. In a real scenario, this would be dynamically loaded from the page or an API.";
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-        <p className="mt-4 text-gray-600">Loading...</p>
-      </div>
-    </div>
-  )
+    <main className="flex min-h-screen flex-col items-center justify-center p-24">
+      <h1 className="text-4xl font-bold mb-8">Vibe Incident Page (Mock)</h1>
+      <button
+        onClick={() => setIsAgentVisible(true)}
+        className="px-8 py-4 bg-purple-600 text-white font-semibold rounded-lg shadow-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-75"
+      >
+        Start Vibe AI Copilot
+      </button>
+
+      {isAgentVisible && (
+        <GlassAgent
+          incidentContext={incidentContext}
+          onClose={() => setIsAgentVisible(false)}
+        />
+      )}
+    </main>
+  );
 } 
