@@ -123,7 +123,7 @@ class ModelStateService extends EventEmitter {
             }
             
             if (types.length > 0) {
-                await this._autoSelectAvailableModels(types);
+            await this._autoSelectAvailableModels(types);
             } else {
                 console.log(`[ModelStateService] ${service} went offline but we're not using ${service} models, no re-selection needed`);
             }

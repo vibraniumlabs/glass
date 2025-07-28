@@ -12,7 +12,7 @@ class ListenService {
         this.summaryService = new SummaryService();
         this.currentSessionId = null;
         this.isInitializingSession = false;
-        
+
         // Speech management for preventing feedback
         this.isAISpeaking = false;
         this.speechQueue = [];

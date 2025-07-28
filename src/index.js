@@ -471,18 +471,18 @@ async function handleCustomUrl(url) {
         }
         header.focus();
     }
-    
-    // Validate and clean URL
+        
+        // Validate and clean URL
     if (!url || typeof url !== 'string' || !url.startsWith('vibranium-copilot://')) {
-        console.error('[Custom URL] Invalid URL format:', url);
-        return;
-    }
-
+            console.error('[Custom URL] Invalid URL format:', url);
+            return;
+        }
+        
     try {
         const parsedUrl = new URL(url);
         const action = parsedUrl.hostname;
         const params = parsedUrl.searchParams;
-
+        
         console.log(`[Custom URL] Action: ${action}`, params);
 
         switch (action) {
@@ -514,7 +514,7 @@ async function handleCustomUrl(url) {
                 break;
             default:
                 console.warn(`[Custom URL] Unknown action: ${action}`);
-        }
+                }
     } catch (error) {
         console.error('[Custom URL] Error handling custom URL:', error);
     }
@@ -722,8 +722,8 @@ async function startWebStack() {
 async function initAutoUpdater() {
     if (process.env.NODE_ENV === 'development') {
         console.log('Development environment, skipping auto-updater.');
-        return;
-    }
+            return;
+        }
 
     try {
         await autoUpdater.checkForUpdates();
