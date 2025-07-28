@@ -5,6 +5,7 @@ const { AccessToken } = require('livekit-server-sdk');
 const OpenAI = require('openai');
 const fs = require('fs');
 const wav = require('node-wav');
+const http = require('http'); // For sending logs to browser API
 
 // Load environment variables
 dotenv.config({ path: path.resolve(__dirname, '../../.env.local') });
@@ -27,17 +28,121 @@ console.log(`   API Secret: ${LIVEKIT_API_SECRET ? 'SET' : 'NOT SET'}`);
 console.log(`   Room: ${ROOM_NAME}`);
 console.log(`   Agent: ${AGENT_IDENTITY}`);
 
-// Context function
-function getIncidentContext() {
-  return "The user is viewing an incident report for a '502 Bad Gateway' error on the checkout service. The error spike started at 14:30 UTC and is affecting 15% of users. The root cause is currently unknown.";
+// Conversation logging function
+async function logConversation(roomName, participantId, message, role, type = 'voice') {
+    return new Promise((resolve, reject) => {
+        const data = JSON.stringify({
+            roomName,
+            participantId,
+            message,
+            role,
+            type
+        });
+
+        const options = {
+            hostname: 'localhost',
+            port: 3001,
+            path: '/api/voice-conversation',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(data)
+            }
+        };
+
+        const req = http.request(options, (res) => {
+            let responseBody = '';
+            
+            res.on('data', (chunk) => {
+                responseBody += chunk;
+            });
+            
+            res.on('end', () => {
+                if (res.statusCode === 200) {
+                    try {
+                        const result = JSON.parse(responseBody);
+                        console.log(`📝 Logged ${role} message:`, result.messageId);
+                        resolve(result);
+                    } catch (e) {
+                        console.log(`📝 Logged ${role} message successfully`);
+                        resolve({});
+                    }
+                } else {
+                    console.error('❌ Failed to log conversation:', res.statusCode, responseBody);
+                    resolve({});
+                }
+            });
+        });
+
+        req.on('error', (error) => {
+            console.error('❌ Error logging conversation:', error.message);
+            resolve({}); // Don't reject, just resolve empty to continue
+        });
+
+        req.write(data);
+        req.end();
+    });
+}
+
+// Context function - fetch current incident context from web interface
+async function getIncidentContext() {
+  return new Promise((resolve) => {
+            const options = {
+            hostname: 'localhost',
+            port: 3001,
+            path: '/api/current-context',
+            method: 'GET'
+        };
+
+    const req = http.request(options, (res) => {
+      let responseBody = '';
+      
+      res.on('data', (chunk) => {
+        responseBody += chunk;
+      });
+      
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          try {
+            const result = JSON.parse(responseBody);
+            console.log('📋 Fetched current incident context from web interface');
+            resolve(result.context || "No incident context available.");
+          } catch (e) {
+            console.log('⚠️ Error parsing context response, using fallback');
+            resolve("No incident context available.");
+          }
+        } else {
+          console.log('⚠️ Could not fetch context from web interface, using fallback');
+          resolve("No incident context available.");
+        }
+      });
+    });
+
+    req.on('error', (error) => {
+      console.log('⚠️ Error fetching context, using fallback:', error.message);
+      resolve("No incident context available.");
+    });
+
+    req.setTimeout(2000, () => {
+      console.log('⚠️ Context fetch timeout, using fallback');
+      resolve("No incident context available.");
+    });
+
+    req.end();
+  });
 }
 
 function getSystemPrompt(context) {
-  return `You are a helpful AI assistant for incident response. The user is currently working on the following incident. This information is critical context for their request.
+  return `You are a helpful AI assistant with vision capabilities for incident response. The user is currently working on the following incident. This information is critical context for their request.
 ---
 INCIDENT CONTEXT:
 ${context}
 ---
+
+IMPORTANT: When you receive a screenshot (image), you MUST analyze and describe what you can see in the visual content. Do not ask for screenshots if one is already provided - instead, focus on analyzing the visual elements, UI components, charts, logs, error messages, or any other content visible in the image.
+
+Be specific about what you observe visually and provide actionable insights based on both the incident context and the visual information. Reference specific visual elements like colors, text, layouts, charts, graphs, error messages, or interface components that you can see.
+
 Your role is to assist the user by answering their questions about the incident. Be concise and accurate.`;
 }
 
@@ -316,19 +421,99 @@ class VoiceAgent {
 
       console.log(`💬 User said: "${transcription.text}"`);
       
-      fs.unlinkSync(tempAudioFile);
+      // Log the user's transcribed message
+      await logConversation(ROOM_NAME, participant.identity, transcription.text, 'user', 'voice');
+      
+      // Safely delete the temp file if it exists
+      try {
+        if (fs.existsSync(tempAudioFile)) {
+          fs.unlinkSync(tempAudioFile);
+        }
+      } catch (error) {
+        console.log('⚠️ Could not delete temp audio file:', error.message);
+      }
 
-      const incidentContext = getIncidentContext();
+      const incidentContext = await getIncidentContext();
+      
+      // Get current screenshot for vision capabilities
+      let screenshot = null;
+      try {
+          const screenshotResponse = await new Promise((resolve, reject) => {
+              const options = {
+                  hostname: 'localhost',
+                  port: 3001,
+                  path: '/api/current-screenshot',
+                  method: 'GET'
+              };
+
+              const req = http.request(options, (res) => {
+                  let responseBody = '';
+                  res.on('data', (chunk) => responseBody += chunk);
+                  res.on('end', () => {
+                      if (res.statusCode === 200) {
+                          try {
+                              resolve(JSON.parse(responseBody));
+                          } catch (e) {
+                              resolve(null);
+                          }
+                      } else {
+                          resolve(null);
+                      }
+                  });
+              });
+
+              req.on('error', () => resolve(null));
+              req.end();
+          });
+
+          if (screenshotResponse && screenshotResponse.screenshot) {
+              screenshot = screenshotResponse.screenshot;
+              console.log(`📸 Using screenshot for vision (${Math.round(screenshotResponse.age/1000)}s old)`);
+          } else {
+              console.log('📷 No screenshot available for vision');
+          }
+      } catch (error) {
+          console.log('❌ Error fetching screenshot:', error.message);
+      }
+
+      // Create messages with or without vision
+      let messages = [
+          { role: 'system', content: getSystemPrompt(incidentContext) }
+      ];
+
+      if (screenshot) {
+          // Use vision-capable message format
+          messages.push({
+              role: 'user',
+              content: [
+                  { type: 'text', text: transcription.text },
+                  {
+                      type: 'image_url',
+                      image_url: {
+                          url: screenshot,
+                          detail: 'high'
+                      }
+                  }
+              ]
+          });
+      } else {
+          // Use text-only format
+          messages.push({
+              role: 'user', 
+              content: transcription.text
+          });
+      }
+
       const completion = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          messages: [
-              { role: 'system', content: getSystemPrompt(incidentContext) },
-              { role: 'user', content: transcription.text }
-          ],
+          model: screenshot ? 'gpt-4o' : 'gpt-4o-mini', // Use gpt-4o for vision, gpt-4o-mini for text-only
+          messages: messages,
       });
 
       const aiResponse = completion.choices[0].message.content;
       console.log(`🤖 AI Response: "${aiResponse}"`);
+      
+      // Log the AI's response
+      await logConversation(ROOM_NAME, participant.identity, aiResponse, 'assistant', 'voice');
 
       const ttsResponse = await openai.audio.speech.create({
           model: 'tts-1',
@@ -359,7 +544,7 @@ class VoiceAgent {
         console.log(`💬 Simulated user said: "${testTranscription}"`);
 
         // Step 2: Generate AI response
-        const incidentContext = getIncidentContext();
+        const incidentContext = await getIncidentContext();
         const completion = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
           messages: [
@@ -400,10 +585,16 @@ class VoiceAgent {
       console.log(`💬 User said: "${transcription.text}"`);
       
       // Clean up temp file
-      fs.unlinkSync(tempAudioFile);
+      try {
+        if (fs.existsSync(tempAudioFile)) {
+          fs.unlinkSync(tempAudioFile);
+        }
+      } catch (error) {
+        console.log('⚠️ Could not delete temp audio file:', error.message);
+      }
 
       // Step 2: Generate AI response
-      const incidentContext = getIncidentContext();
+      const incidentContext = await getIncidentContext();
       const completion = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [
@@ -535,8 +726,8 @@ class VoiceAgent {
             // Create AudioFrame and send it
             const frame = new AudioFrame(
                 int16Data,        // data: Int16Array
-                targetSampleRate,       // sampleRate: number
-                1,               // channels: number  
+                targetSampleRate, // sampleRate: number
+                1,                // channels: number  
                 samplesPerChannel // samplesPerChannel: number
             );
             
@@ -550,7 +741,9 @@ class VoiceAgent {
             setTimeout(async () => {
                 try {
                     await audioTrack.close();
-                    fs.unlinkSync(tempFile);
+                    if (fs.existsSync(tempFile)) {
+                        fs.unlinkSync(tempFile);
+                    }
                     console.log(`🧹 Cleaned up audio track and temp file`);
                 } catch (e) {
                     console.log(`⚠️ Cleanup error (non-critical):`, e.message);

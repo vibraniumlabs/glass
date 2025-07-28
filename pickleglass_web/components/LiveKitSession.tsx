@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import {
-  AudioConference,
   LiveKitRoom,
+  AudioConference,
 } from '@livekit/components-react';
 import '@livekit/components-styles';
 
@@ -45,7 +45,15 @@ export default function LiveKitSession({ roomName, userName, onConnected }: Live
       data-lk-theme="default"
       style={{ height: '100%' }}
     >
-      <AudioConference />
+      <div className="flex items-center justify-center h-full">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-600">🎤 Voice mode active</span>
+        </div>
+      </div>
+      {/* Hidden AudioConference to receive audio from agent */}
+      <div className="hidden">
+        <AudioConference />
+      </div>
     </LiveKitRoom>
   );
 } 
