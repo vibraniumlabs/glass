@@ -25,6 +25,18 @@ Be specific about what you observe visually and provide actionable insights base
 }
 
 export async function POST(req: Request) {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, baggage, x-vercel-id, x-vercel-trace, sentry-trace, x-sentry-trace',
+      },
+    });
+  }
+
   const { messages, context, screenshot } = await req.json();
 
   console.log('🔍 API Debug:', {
@@ -120,7 +132,12 @@ export async function POST(req: Request) {
         const responseText = directResponse.choices[0].message.content || 'No response received';
         
         return new Response(responseText, {
-          headers: { 'Content-Type': 'text/plain' }
+          headers: { 
+            'Content-Type': 'text/plain',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, baggage, x-vercel-id, x-vercel-trace, sentry-trace, x-sentry-trace',
+          }
         });
         
       } catch (directError) {
@@ -134,7 +151,12 @@ export async function POST(req: Request) {
       messages: fullMessages,
     });
 
-    return result.toDataStreamResponse();
+    const response = result.toDataStreamResponse();
+    // Add CORS headers to streaming response
+    response.headers.set('Access-Control-Allow-Origin', '*');
+    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, baggage, x-vercel-id, x-vercel-trace, sentry-trace, x-sentry-trace');
+    return response;
   } catch (error) {
     console.error('❌ Vision API error:', error);
     
@@ -153,6 +175,11 @@ export async function POST(req: Request) {
       messages: textOnlyMessages,
     });
 
-    return fallbackResult.toDataStreamResponse();
+    const fallbackResponse = fallbackResult.toDataStreamResponse();
+    // Add CORS headers to fallback response
+    fallbackResponse.headers.set('Access-Control-Allow-Origin', '*');
+    fallbackResponse.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    fallbackResponse.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, baggage, x-vercel-id, x-vercel-trace, sentry-trace, x-sentry-trace');
+    return fallbackResponse;
   }
 } 

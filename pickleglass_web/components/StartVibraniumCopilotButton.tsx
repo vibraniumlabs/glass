@@ -78,16 +78,16 @@ ${'analysis' in incidentContext && incidentContext.analysis?.reasoning?.midmorte
     // 3. URL-encode the context for safe transmission
     const encodedContext = encodeURIComponent(formattedContext);
 
-    // 4. Construct the URL for our Glass web agent
-    const glassWebUrl = `http://localhost:3001/glass?context=${encodedContext}`;
+    // 4. Construct the URL for our Glass widget
+    const glassWebUrl = `http://localhost:3001/widget?context=${encodedContext}`;
     
     console.log('🔗 Glass web URL:', glassWebUrl);
 
-    // 5. Open the Glass web agent in a popup window
+    // 5. Open the Glass widget in a popup window
     const popup = window.open(
       glassWebUrl,
       'vibe-ai-copilot',
-      'width=1200,height=800,scrollbars=yes,resizable=yes,toolbar=no,menubar=no,location=no,status=no'
+      'width=1000,height=700,scrollbars=no,resizable=yes,toolbar=no,menubar=no,location=no,status=no'
     );
 
     // 6. Focus the popup if it was successfully opened

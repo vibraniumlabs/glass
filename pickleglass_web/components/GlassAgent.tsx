@@ -193,19 +193,15 @@ const GlassAgent: React.FC<GlassAgentProps> = ({ incidentContext, onClose }) => 
   const requestPermissions = async () => {
     try {
       // Request microphone permission first
-      console.log('🎤 Requesting microphone permission...');
       const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      console.log('✅ Microphone permission granted');
       setPermissions(prev => ({ ...prev, microphone: true }));
       micStream.getTracks().forEach(track => track.stop()); // Stop the test stream
       
       // Request screen permission after microphone
-      console.log('🖥️ Requesting screen capture permission...');
       const screenStream = await navigator.mediaDevices.getDisplayMedia({ 
         video: true,
         audio: true // Also capture screen audio if available
       });
-      console.log('✅ Screen capture permission granted');
       setPermissions(prev => ({ ...prev, screen: true }));
       setScreenStream(screenStream);
       setIsScreenSharing(true);
@@ -215,69 +211,33 @@ const GlassAgent: React.FC<GlassAgentProps> = ({ incidentContext, onClose }) => 
       
       // Display screen stream in video element
       if (screenVideoRef.current) {
-        console.log('📹 Assigning screen stream to video element...');
         screenVideoRef.current.srcObject = screenStream;
-        
-        // Verify the stream was assigned
-        console.log('📹 Screen stream assigned:', {
-          hasSrcObject: !!screenVideoRef.current.srcObject,
-          srcObjectType: screenVideoRef.current.srcObject?.constructor.name
-        });
-        
-        // Add event listeners for debugging
-        screenVideoRef.current.onloadedmetadata = () => {
-          console.log('📹 Screen video metadata loaded:', {
-            videoWidth: screenVideoRef.current?.videoWidth,
-            videoHeight: screenVideoRef.current?.videoHeight,
-            readyState: screenVideoRef.current?.readyState
-          });
-        };
-        
-        screenVideoRef.current.oncanplay = () => {
-          console.log('📹 Screen video can play');
-        };
-        
-        screenVideoRef.current.onerror = (e) => {
-          console.error('📹 Screen video error:', e);
-        };
         
         // Force play the video
         try {
           await screenVideoRef.current.play();
-          console.log('📹 Screen video play() successful');
         } catch (playError) {
-          console.error('📹 Screen video play() failed:', playError);
+          console.error('Screen video play failed:', playError);
         }
-      } else {
-        console.error('❌ Screen video ref not available');
       }
       
       // Handle screen share ending
       screenStream.getVideoTracks()[0].addEventListener('ended', () => {
-        console.log('🖥️ Screen sharing ended');
         setIsScreenSharing(false);
         setScreenStream(null);
       });
       
     } catch (error) {
-      console.error('❌ Permission request failed:', error);
+      console.error('Permission request failed:', error);
       alert('Please grant microphone and screen access permissions to use the voice AI agent.');
     }
   };
 
   const startScreenCapture = async () => {
-    console.log('🎬 startScreenCapture function called!');
     try {
-      console.log('🎬 Starting screen capture...');
       const stream = await navigator.mediaDevices.getDisplayMedia({ 
         video: true,
         audio: true 
-      });
-      
-      console.log('✅ Screen stream obtained:', {
-        videoTracks: stream.getVideoTracks().length,
-        audioTracks: stream.getAudioTracks().length,
-        videoTrackSettings: stream.getVideoTracks()[0]?.getSettings()
       });
       
       setScreenStream(stream);
@@ -287,54 +247,22 @@ const GlassAgent: React.FC<GlassAgentProps> = ({ incidentContext, onClose }) => 
       await new Promise(resolve => setTimeout(resolve, 100));
       
       if (screenVideoRef.current) {
-        console.log('📹 Assigning stream to video element...');
         screenVideoRef.current.srcObject = stream;
-        
-        // Verify the stream was assigned
-        console.log('📹 Stream assigned:', {
-          hasSrcObject: !!screenVideoRef.current.srcObject,
-          srcObjectType: screenVideoRef.current.srcObject?.constructor.name
-        });
-        
-        // Add event listeners for debugging
-        screenVideoRef.current.onloadedmetadata = () => {
-          console.log('📹 Video metadata loaded:', {
-            videoWidth: screenVideoRef.current?.videoWidth,
-            videoHeight: screenVideoRef.current?.videoHeight,
-            readyState: screenVideoRef.current?.readyState
-          });
-        };
-        
-        screenVideoRef.current.oncanplay = () => {
-          console.log('📹 Video can play');
-        };
-        
-        screenVideoRef.current.onerror = (e) => {
-          console.error('📹 Video error:', e);
-        };
         
         // Force play the video
         try {
           await screenVideoRef.current.play();
-          console.log('📹 Video play() successful');
         } catch (playError) {
-          console.error('📹 Video play() failed:', playError);
+          console.error('Video play failed:', playError);
         }
-        
-        // Force a re-render by updating state
-        setScreenStream(stream);
-        setIsScreenSharing(true);
-      } else {
-        console.error('❌ Video ref not available');
       }
       
       stream.getVideoTracks()[0].addEventListener('ended', () => {
-        console.log('🖥️ Screen sharing ended');
         setIsScreenSharing(false);
         setScreenStream(null);
       });
     } catch (error) {
-      console.error('❌ Screen capture failed:', error);
+      console.error('Screen capture failed:', error);
     }
   };
 

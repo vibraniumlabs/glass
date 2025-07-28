@@ -20,13 +20,11 @@ const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET;
 const ROOM_NAME = 'vibe-ai-copilot-room';
 const AGENT_IDENTITY = 'ai-copilot-agent';
 
-// Debug: Log the configuration (without secrets)
-console.log('🔧 Configuration:');
-console.log(`   URL: ${LIVEKIT_URL}`);
-console.log(`   API Key: ${LIVEKIT_API_KEY ? `${LIVEKIT_API_KEY.substring(0, 10)}...` : 'NOT SET'}`);
-console.log(`   API Secret: ${LIVEKIT_API_SECRET ? 'SET' : 'NOT SET'}`);
-console.log(`   Room: ${ROOM_NAME}`);
-console.log(`   Agent: ${AGENT_IDENTITY}`);
+// Configuration validation
+if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+  console.error('Missing required LiveKit environment variables');
+  process.exit(1);
+}
 
 // Conversation logging function
 async function logConversation(roomName, participantId, message, role, type = 'voice') {
@@ -61,21 +59,19 @@ async function logConversation(roomName, participantId, message, role, type = 'v
                 if (res.statusCode === 200) {
                     try {
                         const result = JSON.parse(responseBody);
-                        console.log(`📝 Logged ${role} message:`, result.messageId);
                         resolve(result);
                     } catch (e) {
-                        console.log(`📝 Logged ${role} message successfully`);
                         resolve({});
                     }
                 } else {
-                    console.error('❌ Failed to log conversation:', res.statusCode, responseBody);
+                    console.error('Failed to log conversation:', res.statusCode);
                     resolve({});
                 }
             });
         });
 
         req.on('error', (error) => {
-            console.error('❌ Error logging conversation:', error.message);
+            console.error('Error logging conversation:', error.message);
             resolve({}); // Don't reject, just resolve empty to continue
         });
 
@@ -148,22 +144,20 @@ Your role is to assist the user by answering their questions about the incident.
 
 class VoiceAgent {
   constructor() {
-    this.room = new Room();
+    this.room = null;
     this.isConnected = false;
-    this.audioBuffer = [];
+    this.audioSource = null;
+    this.lastActivityTime = Date.now();
+    this.inactivityTimeout = null;
+    this.cleanupTimeout = null;
+    this.participantCount = 0;
   }
 
   async start() {
-    console.log('🚀 Starting Voice AI Agent...');
+    console.log('Starting Voice AI Agent...');
     
     try {
-      // Validate required environment variables
-      if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
-        throw new Error('Missing required LiveKit environment variables');
-      }
-
-      // Test token generation first
-      console.log('🔑 Testing token generation...');
+      // Generate token
       const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
         identity: AGENT_IDENTITY,
       });
@@ -175,60 +169,42 @@ class VoiceAgent {
       });
       
       const jwt = await token.toJwt();
-      console.log('✅ Token generated successfully');
-      console.log(`   Token length: ${jwt.length} characters`);
-      
-      // Test if we can reach the LiveKit endpoint
-      console.log('🌐 Testing LiveKit endpoint reachability...');
-      const testUrl = LIVEKIT_URL.replace('wss://', 'https://');
-      try {
-        const fetch = require('node-fetch');
-        const response = await fetch(testUrl, { 
-          method: 'GET',
-          timeout: 5000,
-          headers: {
-            'Authorization': `Bearer ${jwt}`
-          }
-        });
-        console.log(`   HTTP Response: ${response.status} ${response.statusText}`);
-        const responseText = await response.text();
-        console.log(`   Response preview: ${responseText.substring(0, 200)}...`);
-      } catch (fetchError) {
-        console.log(`   Fetch test failed: ${fetchError.message}`);
-      }
+
+      // Create room instance
+      this.room = new Room();
 
       // Set up event listeners
       this.setupEventListeners();
 
-      console.log('🔗 Attempting to connect to LiveKit...');
-      
-      // Try a simpler connection without extra options first
+      // Connect to room
       await this.room.connect(LIVEKIT_URL, jwt);
       this.isConnected = true;
       
-      console.log(`✅ Agent connected to room: ${ROOM_NAME}`);
-      console.log('👂 Listening for participants...');
+      console.log(`Agent connected to room: ${ROOM_NAME}`);
 
     } catch (error) {
-      console.error('❌ Failed to start agent:', error.message);
-      console.error('❌ Full error:', error);
-      console.error('❌ Error stack:', error.stack);
-      console.error('💡 Debug info:', {
-        hasUrl: !!LIVEKIT_URL,
-        hasApiKey: !!LIVEKIT_API_KEY,
-        hasApiSecret: !!LIVEKIT_API_SECRET,
-        urlFormat: LIVEKIT_URL ? LIVEKIT_URL.substring(0, 20) + '...' : 'none'
-      });
+      console.error('Failed to start agent:', error.message);
       throw error;
     }
   }
 
   setupEventListeners() {
+    // When connected
+    this.room.on(RoomEvent.Connected, () => {
+      console.log('Connected to LiveKit room');
+      this.isConnected = true;
+      this.lastActivityTime = Date.now();
+      this.startInactivityTimer();
+    });
+
     // When a participant joins
     this.room.on(RoomEvent.ParticipantConnected, (participant) => {
-      console.log(`👋 Participant joined: ${participant.identity}`);
+      console.log(`Participant joined: ${participant.identity}`);
+      this.participantCount++;
+      this.lastActivityTime = Date.now();
+      this.resetInactivityTimer();
       
-      // Listen for their audio tracks (with null checks)
+      // Listen for their audio tracks
       if (participant.audioTrackPublications) {
         participant.audioTrackPublications.forEach((publication) => {
           if (publication.track) {
@@ -238,40 +214,43 @@ class VoiceAgent {
       }
     });
 
-    // When a track is subscribed (room-level event)
+    // When a track is subscribed
     this.room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-      console.log(`🎵 Track subscribed: ${track.kind} from ${participant.identity}`);
-      if (track.kind === 1) { // 1 = audio track kind
+      if (track.kind === 1) { // Audio track
         this.handleAudioTrack(track, participant);
       }
     });
 
     // When a participant leaves
     this.room.on(RoomEvent.ParticipantDisconnected, (participant) => {
-      console.log(`👋 Participant left: ${participant.identity}`);
+      console.log(`Participant left: ${participant.identity}`);
+      this.participantCount = Math.max(0, this.participantCount - 1);
+      this.lastActivityTime = Date.now();
+      
+      if (this.participantCount === 0) {
+        this.startCleanupTimer();
+      } else {
+        this.resetInactivityTimer();
+      }
     });
 
-    // Handle connection issues
+    // Handle disconnection
     this.room.on(RoomEvent.Disconnected, () => {
-      console.log('❌ Agent disconnected from room');
+      console.log('Agent disconnected from room');
       this.isConnected = false;
+      this.stopInactivityTimer();
     });
   }
 
   async handleAudioTrack(track, participant) {
-    console.log(`🎤 Listening to audio from: ${participant.identity}`);
+    console.log(`Listening to audio from: ${participant.identity}`);
     
     try {
-      console.log(`📊 Track info:`, track.info);
-      
-      console.log('🔄 Creating AudioStream from track...');
       const audioStream = new AudioStream(track, {
         sampleRate: 48000,
         numChannels: 1,
         frameSizeMs: 20 // 20ms frames
       });
-      
-      console.log('✅ AudioStream created successfully');
       
       const audioFrames = [];
       let isCollecting = true;
@@ -290,7 +269,6 @@ class VoiceAgent {
             const { done, value: audioFrame } = await reader.read();
             
             if (done) {
-              console.log('📝 Audio stream ended');
               break;
             }
             
@@ -303,12 +281,9 @@ class VoiceAgent {
                 // Speech detected
                 if (!speechStartTime) {
                   speechStartTime = now;
-                  console.log('🎤 Speech started');
                 }
                 lastSpeechTime = now;
                 audioFrames.push(audioFrame);
-                
-                console.log(`🔊 Speech frame: ${audioFrame.samplesPerChannel} samples, energy: ${energy.toFixed(4)}`);
               } else {
                 // Silence detected
                 if (speechStartTime && lastSpeechTime) {
@@ -317,7 +292,6 @@ class VoiceAgent {
                   
                   // If we have enough speech and enough silence, process it
                   if (speechDuration >= MIN_SPEECH_DURATION && silenceDuration >= SILENCE_TIMEOUT && audioFrames.length > 0) {
-                    console.log(`🎯 Processing speech: ${speechDuration}ms duration, ${audioFrames.length} frames`);
                     await this.processAudioFrames(audioFrames.slice(), participant);
                     
                     // Reset for next speech
@@ -326,17 +300,12 @@ class VoiceAgent {
                     lastSpeechTime = null;
                   }
                 }
-                
-                // Only log silence occasionally to avoid spam
-                if (audioFrames.length > 0 && audioFrames.length % 50 === 0) {
-                  console.log(`🔇 Silence detected, waiting for speech end...`);
-                }
               }
             }
           }
         } catch (error) {
           if (error.code !== 'ERR_INVALID_STATE') {
-            console.error('❌ Error reading audio stream:', error);
+            console.error('Error reading audio stream:', error);
           }
         } finally {
           try {
@@ -352,7 +321,7 @@ class VoiceAgent {
       collectFrames();
       
     } catch (error) {
-      console.error('❌ Error setting up audio track:', error);
+      console.error('Error setting up audio track:', error);
     }
   }
 
@@ -371,10 +340,7 @@ class VoiceAgent {
 
   async processAudioFrames(audioFrames, participant) {
     try {
-      console.log(`📝 Processing ${audioFrames.length} audio frames from ${participant.identity}...`);
-      
       const combinedFrame = combineAudioFrames(audioFrames);
-      console.log(`🔗 Combined into single frame: ${combinedFrame.samplesPerChannel} samples at ${combinedFrame.sampleRate}Hz`);
       
       // Convert the audio data to proper format for WAV
       const audioBuffer = new Int16Array(combinedFrame.data);
@@ -408,29 +374,26 @@ class VoiceAgent {
       
       const wavFile = Buffer.concat([wavHeader, audioDataBuffer]);
       
-      console.log(`🎵 Created WAV file: ${wavFile.length} bytes (header: 44, data: ${audioDataBuffer.length})`);
-      
       const tempAudioFile = path.join(__dirname, 'temp_audio.wav');
       fs.writeFileSync(tempAudioFile, wavFile);
       
-      console.log('🎤 Transcribing with OpenAI Whisper...');
       const transcription = await openai.audio.transcriptions.create({
           file: fs.createReadStream(tempAudioFile),
           model: 'whisper-1',
       });
 
-      console.log(`💬 User said: "${transcription.text}"`);
+      console.log(`User said: "${transcription.text}"`);
       
       // Log the user's transcribed message
       await logConversation(ROOM_NAME, participant.identity, transcription.text, 'user', 'voice');
       
-      // Safely delete the temp file if it exists
+      // Clean up temp file
       try {
         if (fs.existsSync(tempAudioFile)) {
           fs.unlinkSync(tempAudioFile);
         }
       } catch (error) {
-        console.log('⚠️ Could not delete temp audio file:', error.message);
+        // Ignore cleanup errors
       }
 
       const incidentContext = await getIncidentContext();
@@ -468,12 +431,9 @@ class VoiceAgent {
 
           if (screenshotResponse && screenshotResponse.screenshot) {
               screenshot = screenshotResponse.screenshot;
-              console.log(`📸 Using screenshot for vision (${Math.round(screenshotResponse.age/1000)}s old)`);
-          } else {
-              console.log('📷 No screenshot available for vision');
           }
       } catch (error) {
-          console.log('❌ Error fetching screenshot:', error.message);
+          // Ignore screenshot errors
       }
 
       // Create messages with or without vision
@@ -626,12 +586,9 @@ class VoiceAgent {
 
   async playAudioResponse(audioBuffer) {
         try {
-            console.log(`🎵 Playing audio response: ${audioBuffer.length} bytes`);
-            
             // Save TTS audio to a temporary file first
-            const tempFile = path.join(__dirname, 'temp_response.wav'); // Changed to .wav
+            const tempFile = path.join(__dirname, 'temp_response.wav');
             fs.writeFileSync(tempFile, audioBuffer);
-            console.log(`🔊 Audio saved to ${tempFile}`);
             
             // Decode the WAV file to get PCM data
             const wavData = wav.decode(fs.readFileSync(tempFile));
@@ -639,7 +596,7 @@ class VoiceAgent {
             
             // Validate the decoded data and fix corrupted sample count
             if (!wavData.channelData || wavData.channelData.length === 0 || wavData.channelData[0].length === 0) {
-                console.error('❌ Invalid WAV data');
+                console.error('Invalid WAV data');
                 return;
             }
             
@@ -651,7 +608,6 @@ class VoiceAgent {
                 const bytesPerSample = 2; // 16-bit audio
                 const channels = wavData.channelData.length;
                 actualSampleCount = Math.floor(audioBufferSize / (bytesPerSample * channels));
-                console.log(`🔧 Fixed sample count from ${wavData.channelData[0].length} to ${actualSampleCount}`);
                 
                 // Truncate the channel data to the actual size
                 for (let i = 0; i < wavData.channelData.length; i++) {
@@ -670,8 +626,6 @@ class VoiceAgent {
                 name: 'ai-response',
                 source: 2 // MICROPHONE source
             });
-            
-            console.log(`🎤 Published audio track: ${publication.sid}`);
             
             // Convert the decoded audio to the format LiveKit expects
             let audioData;
@@ -721,7 +675,6 @@ class VoiceAgent {
             }
             
             const samplesPerChannel = int16Data.length;
-            console.log(`🎵 Prepared audio: ${samplesPerChannel} samples at ${targetSampleRate}Hz`);
             
             // Create AudioFrame and send it
             const frame = new AudioFrame(
@@ -731,7 +684,6 @@ class VoiceAgent {
                 samplesPerChannel // samplesPerChannel: number
             );
             
-            console.log(`🎵 Sending audio frame: ${frame.samplesPerChannel} samples`);
             await audioSource.captureFrame(frame);
             
             // Wait for the audio to finish playing
@@ -744,23 +696,58 @@ class VoiceAgent {
                     if (fs.existsSync(tempFile)) {
                         fs.unlinkSync(tempFile);
                     }
-                    console.log(`🧹 Cleaned up audio track and temp file`);
                 } catch (e) {
-                    console.log(`⚠️ Cleanup error (non-critical):`, e.message);
+                    // Ignore cleanup errors
                 }
             }, 3000);
             
-            console.log(`✅ Audio response played successfully!`);
-            
         } catch (error) {
-            console.error('❌ Error playing audio response:', error);
+            console.error('Error playing audio response:', error);
         }
     }
 
+  startInactivityTimer() {
+    // Auto-disconnect after 5 minutes of inactivity
+    this.inactivityTimeout = setTimeout(async () => {
+      console.log('Inactivity timeout reached, disconnecting agent...');
+      await this.stop();
+    }, 5 * 60 * 1000); // 5 minutes
+  }
+
+  startCleanupTimer() {
+    // Auto-disconnect after 30 seconds of no participants
+    this.cleanupTimeout = setTimeout(async () => {
+      if (this.participantCount === 0) {
+        console.log('No participants for 30 seconds, cleaning up agent...');
+        await this.stop();
+      }
+    }, 30 * 1000); // 30 seconds
+  }
+
+  resetInactivityTimer() {
+    if (this.inactivityTimeout) {
+      clearTimeout(this.inactivityTimeout);
+    }
+    this.startInactivityTimer();
+  }
+
+  stopInactivityTimer() {
+    if (this.inactivityTimeout) {
+      clearTimeout(this.inactivityTimeout);
+      this.inactivityTimeout = null;
+    }
+    if (this.cleanupTimeout) {
+      clearTimeout(this.cleanupTimeout);
+      this.cleanupTimeout = null;
+    }
+  }
+
   async stop() {
     if (this.isConnected) {
+      this.stopInactivityTimer();
       await this.room.disconnect();
-      console.log('🛑 Agent stopped');
+      this.isConnected = false;
+      console.log('Agent stopped and cleaned up');
     }
   }
 }
@@ -772,23 +759,23 @@ async function main() {
   try {
     await agent.start();
     
-    // Keep the process running
+    // Handle shutdown
     process.on('SIGINT', async () => {
-      console.log('\n🛑 Shutting down agent...');
+      console.log('\nShutting down agent...');
       await agent.stop();
       process.exit(0);
     });
     
-    // Keep alive
+    // Auto-reconnect if disconnected
     setInterval(() => {
       if (!agent.isConnected) {
-        console.log('⚠️ Agent disconnected, attempting to reconnect...');
+        console.log('Agent disconnected, attempting to reconnect...');
         agent.start().catch(console.error);
       }
     }, 10000);
     
   } catch (error) {
-    console.error('❌ Failed to start agent:', error);
+    console.error('Failed to start agent:', error);
     process.exit(1);
   }
 }
