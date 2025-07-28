@@ -3,15 +3,66 @@ const path = require('path');
 const { Room, RoomEvent, Track, AudioStream, AudioFrame, combineAudioFrames, AudioSource, LocalAudioTrack } = require('@livekit/rtc-node');
 const { AccessToken } = require('livekit-server-sdk');
 const OpenAI = require('openai');
+const { ElevenLabsClient } = require('elevenlabs');
 const fs = require('fs');
 const wav = require('node-wav');
+const audioDecode = require('audio-decode').default;
 const http = require('http'); // For sending logs to browser API
 
 // Load environment variables
 dotenv.config({ path: path.resolve(__dirname, '../../.env.local') });
 
-// Initialize OpenAI
+// Initialize OpenAI (for chat completions only)
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Initialize ElevenLabs for TTS and STT
+const elevenlabs = new ElevenLabsClient({
+  apiKey: process.env.ELEVENLABS_API_KEY
+});
+
+// Helper function to convert ReadableStream to Buffer
+async function streamToBuffer(stream) {
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+// Helper function to clean text for better TTS pronunciation
+function cleanTextForTTS(text) {
+  return text
+    // Remove markdown and special characters
+    .replace(/\*/g, '')
+    .replace(/`/g, '')
+    .replace(/#/g, '')
+    .replace(/\*\*/g, '')
+    .replace(/_/g, ' ')
+    
+    // Improve pronunciation of technical terms
+    .replace(/SEV1/g, 'S E V 1')
+    .replace(/SEV2/g, 'S E V 2')
+    .replace(/SEV3/g, 'S E V 3')
+    .replace(/500/g, 'five hundred')
+    .replace(/404/g, 'four oh four')
+    .replace(/503/g, 'five oh three')
+    .replace(/ID: (\d+)/g, 'ID number $1')
+    .replace(/ID (\d+)/g, 'ID number $1')
+    
+    // Clean up common abbreviations
+    .replace(/PM/g, 'P M')
+    .replace(/AM/g, 'A M')
+    .replace(/AI/g, 'A I')
+    .replace(/API/g, 'A P I')
+    .replace(/UI/g, 'U I')
+    .replace(/UX/g, 'U X')
+    
+    // Clean up punctuation and spacing
+    .replace(/\s+/g, ' ')
+    .replace(/\s+\./g, '.')
+    .replace(/\s+,/g, ',')
+    .trim();
+}
 
 // LiveKit configuration
 const LIVEKIT_URL = process.env.LIVEKIT_URL;
@@ -20,9 +71,17 @@ const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET;
 const ROOM_NAME = 'vibe-ai-copilot-room';
 const AGENT_IDENTITY = 'ai-copilot-agent';
 
+// ElevenLabs configuration
+const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "ErXwobaYiN019PkySvjV"; // Antoni voice ID
+
 // Configuration validation
 if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
   console.error('Missing required LiveKit environment variables');
+  process.exit(1);
+}
+
+if (!process.env.ELEVENLABS_API_KEY) {
+  console.error('Missing required ElevenLabs API key');
   process.exit(1);
 }
 
@@ -377,10 +436,13 @@ class VoiceAgent {
       const tempAudioFile = path.join(__dirname, 'temp_audio.wav');
       fs.writeFileSync(tempAudioFile, wavFile);
       
-      const transcription = await openai.audio.transcriptions.create({
-          file: fs.createReadStream(tempAudioFile),
-          model: 'whisper-1',
+            // Use ElevenLabs STT API
+      const transcriptionResponse = await elevenlabs.speechToText.convert({
+        file: fs.createReadStream(tempAudioFile),
+        model_id: 'scribe_v1'
       });
+      
+      const transcription = { text: transcriptionResponse.text };
 
       console.log(`User said: "${transcription.text}"`);
       
@@ -475,14 +537,22 @@ class VoiceAgent {
       // Log the AI's response
       await logConversation(ROOM_NAME, participant.identity, aiResponse, 'assistant', 'voice');
 
-      const ttsResponse = await openai.audio.speech.create({
-          model: 'tts-1',
-          voice: 'alloy',
-          input: aiResponse,
-          response_format: 'wav' // Request WAV format instead of MP3
+      // Clean the AI response for better TTS pronunciation
+      const cleanedText = cleanTextForTTS(aiResponse);
+      console.log(`🗣️ Original text: ${aiResponse}`);
+      console.log(`🗣️ Cleaned text: ${cleanedText}`);
+      
+      // Use ElevenLabs TTS API (default format)
+      const ttsStream = await elevenlabs.textToSpeech.convert(ELEVENLABS_VOICE_ID, {
+          text: cleanedText,
+          model_id: 'eleven_monolingual_v1',
+          voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.5,
+          }
       });
 
-      const audioResponseBuffer = Buffer.from(await ttsResponse.arrayBuffer());
+      const audioResponseBuffer = await streamToBuffer(ttsStream);
       console.log(`🗣️ Generated ${audioResponseBuffer.length} bytes of speech`);
 
       await this.playAudioResponse(audioResponseBuffer);
@@ -517,13 +587,16 @@ class VoiceAgent {
         console.log(`🤖 AI Response: "${aiResponse}"`);
 
         // Step 3: Convert response to speech
-        const ttsResponse = await openai.audio.speech.create({
-          model: 'tts-1',
-          voice: 'alloy',
-          input: aiResponse,
+        const ttsStream = await elevenlabs.textToSpeech.convert(ELEVENLABS_VOICE_ID, {
+          text: aiResponse,
+          model_id: 'eleven_monolingual_v1',
+          voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.5,
+          }
         });
 
-        const audioResponseBuffer = Buffer.from(await ttsResponse.arrayBuffer());
+        const audioResponseBuffer = await streamToBuffer(ttsStream);
         console.log(`🗣️ Generated ${audioResponseBuffer.length} bytes of speech`);
 
         // Step 4: Play audio response back to the room
@@ -537,10 +610,13 @@ class VoiceAgent {
       const tempAudioFile = path.join(__dirname, 'temp_audio.wav');
       fs.writeFileSync(tempAudioFile, audioData);
       
-      const transcription = await openai.audio.transcriptions.create({
+      // Use ElevenLabs STT API
+      const transcriptionResponse = await elevenlabs.speechToText.convert({
         file: fs.createReadStream(tempAudioFile),
-        model: 'whisper-1',
+        model_id: 'scribe_v1'
       });
+      
+      const transcription = { text: transcriptionResponse.text };
 
       console.log(`💬 User said: "${transcription.text}"`);
       
@@ -566,14 +642,17 @@ class VoiceAgent {
       const aiResponse = completion.choices[0].message.content;
       console.log(`🤖 AI Response: "${aiResponse}"`);
 
-      // Step 3: Convert response to speech
-      const ttsResponse = await openai.audio.speech.create({
-        model: 'tts-1',
-        voice: 'alloy',
-        input: aiResponse,
-      });
+              // Step 3: Convert response to speech
+        const ttsStream = await elevenlabs.textToSpeech.convert(ELEVENLABS_VOICE_ID, {
+          text: aiResponse,
+          model_id: 'eleven_monolingual_v1',
+          voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.5,
+          }
+        });
 
-      const audioResponseBuffer = Buffer.from(await ttsResponse.arrayBuffer());
+        const audioResponseBuffer = await streamToBuffer(ttsStream);
       console.log(`🗣️ Generated ${audioResponseBuffer.length} bytes of speech`);
 
       // Step 4: Play audio response back to the room
@@ -585,126 +664,113 @@ class VoiceAgent {
   }
 
   async playAudioResponse(audioBuffer) {
-        try {
-            // Save TTS audio to a temporary file first
-            const tempFile = path.join(__dirname, 'temp_response.wav');
-            fs.writeFileSync(tempFile, audioBuffer);
-            
-            // Decode the WAV file to get PCM data
-            const wavData = wav.decode(fs.readFileSync(tempFile));
-            console.log(`🎵 Decoded WAV: ${wavData.sampleRate}Hz, ${wavData.channelData.length} channels, ${wavData.channelData[0].length} samples`);
-            
-            // Validate the decoded data and fix corrupted sample count
-            if (!wavData.channelData || wavData.channelData.length === 0 || wavData.channelData[0].length === 0) {
-                console.error('Invalid WAV data');
-                return;
-            }
-            
-            // The sample count might be corrupted (2147483647), so calculate it from actual data
-            let actualSampleCount = wavData.channelData[0].length;
-            if (actualSampleCount === 2147483647 || actualSampleCount > 1000000) {
-                // Calculate from the audio buffer size
-                const audioBufferSize = fs.statSync(tempFile).size - 44; // Subtract WAV header
-                const bytesPerSample = 2; // 16-bit audio
-                const channels = wavData.channelData.length;
-                actualSampleCount = Math.floor(audioBufferSize / (bytesPerSample * channels));
-                
-                // Truncate the channel data to the actual size
-                for (let i = 0; i < wavData.channelData.length; i++) {
-                    wavData.channelData[i] = wavData.channelData[i].slice(0, actualSampleCount);
-                }
-            }
-            
-            // Create an AudioSource (use the original sample rate, then resample if needed)
-            const audioSource = new AudioSource(48000, 1); // LiveKit typically uses 48kHz mono
-            
-            // Create a local audio track
-            const audioTrack = LocalAudioTrack.createAudioTrack('ai-response', audioSource);
-            
-            // Publish the track to the room
-            const publication = await this.room.localParticipant.publishTrack(audioTrack, {
-                name: 'ai-response',
-                source: 2 // MICROPHONE source
-            });
-            
-            // Convert the decoded audio to the format LiveKit expects
-            let audioData;
-            if (wavData.channelData.length === 1) {
-                // Already mono
-                audioData = wavData.channelData[0];
-            } else {
-                // Convert stereo to mono by averaging channels
-                const leftChannel = wavData.channelData[0];
-                const rightChannel = wavData.channelData[1];
-                audioData = new Float32Array(leftChannel.length);
-                for (let i = 0; i < leftChannel.length; i++) {
-                    audioData[i] = (leftChannel[i] + rightChannel[i]) / 2;
-                }
-            }
-            
-            // Convert Float32 to Int16 and resample if necessary
-            const targetSampleRate = 48000;
-            const sourceSampleRate = wavData.sampleRate;
-            
-            let finalAudioData;
-            if (sourceSampleRate !== targetSampleRate) {
-                // Simple resampling (linear interpolation)
-                const resampleRatio = targetSampleRate / sourceSampleRate;
-                const newLength = Math.floor(audioData.length * resampleRatio);
-                const resampled = new Float32Array(newLength);
-                
-                for (let i = 0; i < newLength; i++) {
-                    const sourceIndex = i / resampleRatio;
-                    const lowerIndex = Math.floor(sourceIndex);
-                    const upperIndex = Math.min(lowerIndex + 1, audioData.length - 1);
-                    const fraction = sourceIndex - lowerIndex;
-                    
-                    resampled[i] = audioData[lowerIndex] * (1 - fraction) + audioData[upperIndex] * fraction;
-                }
-                finalAudioData = resampled;
-            } else {
-                finalAudioData = audioData;
-            }
-            
-            // Convert to Int16Array (LiveKit expects 16-bit PCM)
-            const int16Data = new Int16Array(finalAudioData.length);
-            for (let i = 0; i < finalAudioData.length; i++) {
-                // Clamp and convert to 16-bit signed integer
-                const sample = Math.max(-1, Math.min(1, finalAudioData[i]));
-                int16Data[i] = Math.floor(sample * 0x7FFF);
-            }
-            
-            const samplesPerChannel = int16Data.length;
-            
-            // Create AudioFrame and send it
-            const frame = new AudioFrame(
-                int16Data,        // data: Int16Array
-                targetSampleRate, // sampleRate: number
-                1,                // channels: number  
-                samplesPerChannel // samplesPerChannel: number
-            );
-            
-            await audioSource.captureFrame(frame);
-            
-            // Wait for the audio to finish playing
-            await audioSource.waitForPlayout();
-            
-            // Clean up
-            setTimeout(async () => {
-                try {
-                    await audioTrack.close();
-                    if (fs.existsSync(tempFile)) {
-                        fs.unlinkSync(tempFile);
-                    }
-                } catch (e) {
-                    // Ignore cleanup errors
-                }
-            }, 3000);
-            
-        } catch (error) {
-            console.error('Error playing audio response:', error);
+    try {
+      console.log('🔊 Playing audio response...');
+      
+      // Save the MP3 buffer to a temporary file
+      const tempMp3File = path.join(__dirname, 'temp_response.mp3');
+      fs.writeFileSync(tempMp3File, audioBuffer);
+      
+      // Decode MP3 using audio-decode
+      const decodedAudioBuffer = await audioDecode(fs.readFileSync(tempMp3File));
+      
+      if (!decodedAudioBuffer || !decodedAudioBuffer.sampleRate || !decodedAudioBuffer.length) {
+        console.error('Failed to decode MP3 data');
+        return;
+      }
+      
+      console.log(`🎵 Decoded MP3: ${decodedAudioBuffer.sampleRate}Hz, ${decodedAudioBuffer.numberOfChannels} channels, ${decodedAudioBuffer.length} samples`);
+      
+      // Create an AudioSource (use the decoded sample rate, then resample if needed)
+      const audioSource = new AudioSource(48000, 1); // LiveKit typically uses 48kHz mono
+      
+      // Create a local audio track
+      const audioTrack = LocalAudioTrack.createAudioTrack('ai-response', audioSource);
+      
+      // Publish the track to the room
+      const publication = await this.room.localParticipant.publishTrack(audioTrack, {
+        name: 'ai-response',
+        source: 2 // MICROPHONE source
+      });
+      
+      // Convert the decoded audio to the format LiveKit expects
+      let audioData;
+      if (decodedAudioBuffer.numberOfChannels === 1) {
+        // Already mono - get the channel data
+        audioData = decodedAudioBuffer.getChannelData(0);
+      } else {
+        // Convert stereo to mono by averaging channels
+        const leftChannel = decodedAudioBuffer.getChannelData(0);
+        const rightChannel = decodedAudioBuffer.getChannelData(1);
+        audioData = new Float32Array(leftChannel.length);
+        for (let i = 0; i < leftChannel.length; i++) {
+          audioData[i] = (leftChannel[i] + rightChannel[i]) / 2;
         }
+      }
+      
+      // Convert Float32 to Int16 and resample if necessary
+      const targetSampleRate = 48000;
+      const sourceSampleRate = decodedAudioBuffer.sampleRate;
+      
+      let finalAudioData;
+      if (sourceSampleRate !== targetSampleRate) {
+        // Simple resampling (linear interpolation)
+        const resampleRatio = targetSampleRate / sourceSampleRate;
+        const newLength = Math.floor(audioData.length * resampleRatio);
+        const resampled = new Float32Array(newLength);
+        
+        for (let i = 0; i < newLength; i++) {
+          const sourceIndex = i / resampleRatio;
+          const lowerIndex = Math.floor(sourceIndex);
+          const upperIndex = Math.min(lowerIndex + 1, audioData.length - 1);
+          const fraction = sourceIndex - lowerIndex;
+          
+          resampled[i] = audioData[lowerIndex] * (1 - fraction) + audioData[upperIndex] * fraction;
+        }
+        finalAudioData = resampled;
+      } else {
+        finalAudioData = audioData;
+      }
+      
+      // Convert to Int16Array (LiveKit expects 16-bit PCM)
+      const int16Data = new Int16Array(finalAudioData.length);
+      for (let i = 0; i < finalAudioData.length; i++) {
+        // Clamp and convert to 16-bit signed integer
+        const sample = Math.max(-1, Math.min(1, finalAudioData[i]));
+        int16Data[i] = Math.floor(sample * 0x7FFF);
+      }
+      
+      // Create AudioFrame and send it
+      const frame = new AudioFrame(
+        int16Data,        // data: Int16Array
+        targetSampleRate, // sampleRate: number
+        1,                // channels: number  
+        int16Data.length  // samplesPerChannel: number
+      );
+      
+      await audioSource.captureFrame(frame);
+      
+      // Wait for the audio to finish playing
+      await audioSource.waitForPlayout();
+      
+      // Clean up
+      setTimeout(async () => {
+        try {
+          await audioTrack.close();
+          if (fs.existsSync(tempMp3File)) {
+            fs.unlinkSync(tempMp3File);
+          }
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      }, 3000);
+      
+      console.log('✅ Audio response played successfully');
+      
+    } catch (error) {
+      console.error('Error playing audio response:', error);
     }
+  }
 
   startInactivityTimer() {
     // Auto-disconnect after 5 minutes of inactivity
