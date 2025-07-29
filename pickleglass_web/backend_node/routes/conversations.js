@@ -35,6 +35,34 @@ router.get('/:session_id', async (req, res) => {
     }
 });
 
+// Add message to a session
+router.post('/:session_id/messages', async (req, res) => {
+    try {
+        const { role, content, type = 'text' } = req.body;
+        const sessionId = req.params.session_id;
+        
+        if (!role || !content) {
+            return res.status(400).json({ error: 'Role and content are required' });
+        }
+        
+        const result = await ipcRequest(req, 'add-message-to-session', {
+            sessionId,
+            role,
+            content,
+            type
+        });
+        
+        res.status(201).json({ 
+            success: true, 
+            messageId: result.id,
+            message: 'Message added successfully' 
+        });
+    } catch (error) {
+        console.error(`Failed to add message to session ${req.params.session_id}:`, error);
+        res.status(500).json({ error: 'Failed to add message to session' });
+    }
+});
+
 router.delete('/:session_id', async (req, res) => {
     try {
         await ipcRequest(req, 'delete-session', req.params.session_id);

@@ -172,7 +172,7 @@ const convertFirestorePreset = (preset: { id: string } & FirestorePromptPreset, 
 
 
 let API_ORIGIN = process.env.NODE_ENV === 'development'
-  ? 'http://localhost:9001'
+  ? 'http://localhost:3002'
   : '';
 
 const loadRuntimeConfig = async (): Promise<string | null> => {

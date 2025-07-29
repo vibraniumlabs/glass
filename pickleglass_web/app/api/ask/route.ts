@@ -10,6 +10,66 @@ const directOpenAI = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Function to log interaction to main database via IPC
+async function logToMainDatabase(sessionId: string, role: 'user' | 'assistant', content: string) {
+  try {
+    // Get the API URL from environment
+    const apiUrl = process.env.pickleglass_API_URL || 'http://localhost:3002';
+    
+    // Log the message to the main database
+    const logResponse = await fetch(`${apiUrl}/api/conversations/${sessionId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        role,
+        content,
+        type: 'text'
+      })
+    });
+
+    if (!logResponse.ok) {
+      console.error('Failed to log message to main database:', await logResponse.text());
+    } else {
+      console.log(`✅ Logged ${role} message to session ${sessionId}`);
+    }
+  } catch (error) {
+    console.error('Error logging to main database:', error);
+  }
+}
+
+// Function to create or get session for widget interactions
+async function getOrCreateWidgetSession() {
+  try {
+    const apiUrl = process.env.pickleglass_API_URL || 'http://localhost:3002';
+    
+    // Create a new session for widget interactions
+    const sessionResponse = await fetch(`${apiUrl}/api/conversations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'widget',
+        name: 'Glass Widget Session'
+      })
+    });
+
+    if (!sessionResponse.ok) {
+      console.error('Failed to create widget session:', await sessionResponse.text());
+      return null;
+    }
+
+    const sessionData = await sessionResponse.json();
+    console.log('✅ Created widget session:', sessionData.id);
+    return sessionData.id;
+  } catch (error) {
+    console.error('Error creating widget session:', error);
+    return null;
+  }
+}
+
 function getSystemPrompt(context: string): string {
     const contextInjection = `The user is currently working on the following incident. This information is critical context for their request.
 ---
@@ -44,6 +104,20 @@ export async function POST(req: Request) {
     screenshotLength: screenshot ? screenshot.length : 0,
     messagesCount: messages.length
   });
+
+  // Create or get session for widget interactions
+  const sessionId = await getOrCreateWidgetSession();
+  if (!sessionId) {
+    console.warn('⚠️ Could not create widget session, continuing without logging');
+  }
+
+  // Log the user message to the main database
+  if (sessionId && messages.length > 0) {
+    const lastUserMessage = messages[messages.length - 1];
+    if (lastUserMessage.role === 'user') {
+      await logToMainDatabase(sessionId, 'user', lastUserMessage.content);
+    }
+  }
 
   const systemPrompt = getSystemPrompt(context);
   
@@ -128,8 +202,13 @@ export async function POST(req: Request) {
         
         console.log('✅ Direct OpenAI Vision API worked!');
         
-        // Return the direct response as a simple text response
+        // Get the response text
         const responseText = directResponse.choices[0].message.content || 'No response received';
+        
+        // Log the assistant response to the main database
+        if (sessionId) {
+          await logToMainDatabase(sessionId, 'assistant', responseText);
+        }
         
         return new Response(responseText, {
           headers: { 
@@ -151,11 +230,24 @@ export async function POST(req: Request) {
       messages: fullMessages,
     });
 
-    const response = result.toDataStreamResponse();
-    // Add CORS headers to streaming response
-    response.headers.set('Access-Control-Allow-Origin', '*');
-    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, baggage, x-vercel-id, x-vercel-trace, sentry-trace, x-sentry-trace');
+    // Create a custom response that logs the assistant message
+    const originalResponse = result.toDataStreamResponse();
+    
+    // We'll need to capture the full response to log it
+    // For now, we'll create a simple response and log it later
+    const response = new Response(originalResponse.body, {
+      headers: {
+        ...Object.fromEntries(originalResponse.headers.entries()),
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, baggage, x-vercel-id, x-vercel-trace, sentry-trace, x-sentry-trace',
+      }
+    });
+
+    // Note: For streaming responses, we'll need to handle the logging differently
+    // This is a simplified approach - in a full implementation, we'd need to
+    // capture the full response and log it after completion
+    
     return response;
   } catch (error) {
     console.error('❌ Vision API error:', error);
