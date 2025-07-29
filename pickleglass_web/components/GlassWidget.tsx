@@ -272,33 +272,33 @@ const GlassWidget: React.FC<GlassWidgetProps> = ({ incidentContext, onClose }) =
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col animate-in slide-in-from-bottom-4 duration-300">
+    <div className="fixed inset-0 bg-black bg-opacity-30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="glass-widget rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col animate-in slide-in-from-bottom-4 duration-300">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+        <div className="glass-widget-header flex items-center justify-between p-6">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+            <div className="w-8 h-8 bg-gradient-to-r from-blue-500/90 to-purple-600/90 backdrop-blur-sm rounded-lg flex items-center justify-center border border-white/30">
               <span className="text-white font-bold text-sm">AI</span>
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">Vibe AI Copilot</h2>
-              <p className="text-sm text-gray-500">Incident Assistant</p>
+              <h2 className="text-lg font-semibold text-gray-900/90">Vibe AI Copilot</h2>
+              <p className="text-sm text-gray-600/80">Incident Assistant</p>
             </div>
           </div>
           <button
             onClick={handleClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-white/30 rounded-lg transition-colors backdrop-blur-sm"
           >
-            <X className="w-5 h-5 text-gray-500" />
+            <X className="w-5 h-5 text-gray-600" />
           </button>
         </div>
 
         {/* Main Content */}
         <div className="flex-1 flex overflow-hidden">
           {/* Screen Preview */}
-          <div className="w-1/3 border-r border-gray-200 flex flex-col">
-            <div className="p-4 border-b border-gray-200">
-              <h3 className="font-medium text-gray-900 flex items-center gap-2">
+          <div className="w-1/3 border-r border-white/20 flex flex-col bg-white/20 backdrop-blur-sm">
+            <div className="p-4 border-b border-white/20 bg-white/30 backdrop-blur-sm">
+              <h3 className="font-medium text-gray-900/90 flex items-center gap-2">
                 <Monitor className="w-4 h-4" />
                 Screen Preview
               </h3>
@@ -310,13 +310,13 @@ const GlassWidget: React.FC<GlassWidgetProps> = ({ incidentContext, onClose }) =
                   autoPlay
                   playsInline
                   muted
-                  className="w-full h-full object-contain rounded-lg border border-gray-200"
+                  className="w-full h-full object-contain rounded-lg border border-white/30 bg-white/20 backdrop-blur-sm"
                 />
               ) : (
-                <div className="w-full h-full bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center">
+                <div className="w-full h-full bg-white/20 backdrop-blur-sm rounded-lg border-2 border-dashed border-white/40 flex items-center justify-center">
                   <div className="text-center">
-                    <MonitorOff className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500">Screen sharing not active</p>
+                    <MonitorOff className="w-8 h-8 text-gray-500/70 mx-auto mb-2" />
+                    <p className="text-sm text-gray-600/80">Screen sharing not active</p>
                   </div>
                 </div>
               )}
@@ -324,11 +324,11 @@ const GlassWidget: React.FC<GlassWidgetProps> = ({ incidentContext, onClose }) =
           </div>
 
           {/* Chat Area */}
-          <div className="flex-1 flex flex-col">
+          <div className="glass-widget-content flex-1 flex flex-col">
             {/* Incident Context */}
-            <div className="p-4 border-b border-gray-200 bg-gray-50">
-              <h3 className="font-medium text-gray-900 mb-2">Incident Context</h3>
-              <p className="text-sm text-gray-600 line-clamp-2">
+            <div className="p-4 border-b border-white/20 bg-white/30 backdrop-blur-sm">
+              <h3 className="font-medium text-gray-900/90 mb-2">Incident Context</h3>
+              <p className="text-sm text-gray-600/80 line-clamp-2">
                 {incidentContext.substring(0, 200)}...
               </p>
             </div>
@@ -389,13 +389,13 @@ const GlassWidget: React.FC<GlassWidgetProps> = ({ incidentContext, onClose }) =
             </div>
 
             {/* Input Area */}
-            <div className="p-4 border-t border-gray-200">
+            <div className="p-4 border-t border-white/20 bg-white/40 backdrop-blur-sm">
               {!isListening ? (
                 <form onSubmit={handleSubmit} className="flex gap-3">
                   <input
                     type="text"
                     placeholder="Ask about the incident..."
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="glass-widget-input flex-1 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent text-gray-900 placeholder-gray-600/70"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     disabled={isLoading}
@@ -403,17 +403,17 @@ const GlassWidget: React.FC<GlassWidgetProps> = ({ incidentContext, onClose }) =
                   <button
                     type="submit"
                     disabled={isLoading || !input.trim()}
-                    className="px-6 py-3 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                    className="glass-widget-button px-6 py-3 bg-blue-500/90 text-white rounded-xl font-medium hover:bg-blue-600/90 disabled:bg-gray-300/70 disabled:cursor-not-allowed transition-colors"
                   >
                     <Send className="w-4 h-4" />
                   </button>
                   <button
                     type="button"
                     onClick={handleListenClick}
-                    className={`px-6 py-3 rounded-xl font-medium transition-colors ${
+                    className={`glass-widget-button px-6 py-3 rounded-xl font-medium transition-colors ${
                       isListening 
-                        ? 'bg-red-500 text-white hover:bg-red-600' 
-                        : 'bg-green-500 text-white hover:bg-green-600'
+                        ? 'bg-red-500/90 text-white hover:bg-red-600/90' 
+                        : 'bg-green-500/90 text-white hover:bg-green-600/90'
                     }`}
                   >
                     {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
@@ -423,12 +423,12 @@ const GlassWidget: React.FC<GlassWidgetProps> = ({ incidentContext, onClose }) =
                 <div className="text-center">
                   <button
                     onClick={handleListenClick}
-                    className="px-8 py-3 bg-red-500 text-white rounded-xl font-medium hover:bg-red-600 transition-colors"
+                    className="px-8 py-3 bg-red-500/90 backdrop-blur-sm text-white rounded-xl font-medium hover:bg-red-600/90 transition-colors border border-white/20"
                   >
                     <MicOff className="w-4 h-4 inline mr-2" />
                     Stop Listening
                   </button>
-                  <p className="text-sm text-gray-600 mt-2">
+                  <p className="text-sm text-gray-600/80 mt-2">
                     Voice mode active - speak your question
                   </p>
                 </div>
