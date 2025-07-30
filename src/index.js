@@ -365,11 +365,21 @@ function setupWebDataHandlers() {
                     break;
                 case 'create-session':
                     // Adapter injects UID
-                    const id = await sessionRepository.create('ask');
+                    const id = await sessionRepository.create(payload?.type || 'ask');
                     if (payload && payload.title) {
                         await sessionRepository.updateTitle(id, payload.title);
                     }
                     result = { id };
+                    break;
+                case 'add-message-to-session':
+                    // Adapter injects UID
+                    const messageId = await askRepository.addAiMessage({
+                        sessionId: payload.sessionId,
+                        role: payload.role,
+                        content: payload.content,
+                        model: 'widget'
+                    });
+                    result = { id: messageId.id };
                     break;
                 
                 // USER
